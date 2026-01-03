@@ -1,0 +1,761 @@
+import React, { useState, useMemo } from 'react';
+import { 
+  Users, 
+  FileWarning, 
+  CheckCircle, 
+  XCircle, 
+  Printer, 
+  BookOpen, 
+  AlertTriangle,
+  Search,
+  Plus,
+  Trash2,
+  Filter,
+  School,
+  FileText
+} from 'lucide-react';
+
+// --- Konstanta Data Madrasah (MAN) ---
+
+// Daftar Kelas Sesuai Permintaan
+const CLASSES = [
+  // Kelas X (Fase E)
+  'X-A', 'X-B', 'X-C', 'X-D', 'X-E', 'X-F',
+  // Kelas XI (Fase F)
+  'XI-A', 'XI-B', 'XI-C', 'XI-D',
+  // Kelas XII (Fase F)
+  'XII-A', 'XII-B', 'XII-C', 'XII-D', 'XII-E', 'XII-F'
+];
+
+// Struktur Kurikulum KMA (PAI, Umum, Pilihan) untuk MA
+const SUBJECTS = {
+  PAI: [
+    "Al-Qur'an Hadis",
+    "Akidah Akhlak",
+    "Fikih",
+    "Sejarah Kebudayaan Islam (SKI)",
+    "Bahasa Arab"
+  ],
+  Umum: [
+    "Pendidikan Pancasila",
+    "Bahasa Indonesia",
+    "Matematika",
+    "Bahasa Inggris",
+    "Sejarah",
+    "Seni Budaya",
+    "PJOK",
+    "Informatika",
+    "Prakarya/Kewirausahaan"
+  ],
+  PilihanMIPA_IPS_BHS: [
+    "Biologi",
+    "Fisika",
+    "Kimia",
+    "Sosiologi",
+    "Ekonomi",
+    "Geografi",
+    "Bahasa Inggris Tingkat Lanjut",
+    "Bahasa Arab Tingkat Lanjut"
+  ],
+  PilihanKeagamaan: [
+    "Ilmu Hadits",
+    "Ilmu Tafsir",
+    "Ushul Fiqih"
+  ],
+  MuatanLokal: [
+    "Tahfidz",
+    "Riset/KIR"
+  ]
+};
+
+// --- Tipe Data ---
+type Task = {
+  id: string;
+  mapel: string;
+  deskripsi: string;
+  isDone: boolean;
+};
+
+type Student = {
+  id: string;
+  nama: string;
+  kelas: string;
+  nis: string;
+  ortu: string;
+  tasks: Task[];
+};
+
+// --- Data Awal (Dummy Data Diperluas) ---
+const initialStudents: Student[] = [
+  // Kelas X
+  {
+    id: '1', nama: 'Ahmad Fulan', kelas: 'X-A', nis: '131101', ortu: 'Bpk. Fulan',
+    tasks: [
+      { id: 't1', mapel: 'Matematika', deskripsi: 'Remedial Persamaan Eksponen', isDone: false },
+      { id: 't2', mapel: 'Bahasa Arab', deskripsi: 'Hafalan Mufrodat Bab 3', isDone: true },
+    ]
+  },
+  {
+    id: '2', nama: 'Siti Aminah', kelas: 'X-A', nis: '131102', ortu: 'Ibu Aminah',
+    tasks: [{ id: 't3', mapel: 'Fisika', deskripsi: 'Laporan Praktikum Pengukuran', isDone: false }]
+  },
+  { id: '3', nama: 'Budi Santoso', kelas: 'X-F', nis: '131150', ortu: 'Bpk. Santoso', tasks: [] },
+  
+  // Kelas XI
+  {
+    id: '4', nama: 'Dewi Sartika', kelas: 'XI-B', nis: '131220', ortu: 'Bpk. Sartika',
+    tasks: [{ id: 't4', mapel: 'Fikih', deskripsi: 'Hafalan Dalil Jinayat', isDone: false }]
+  },
+  
+  // Kelas XII
+  {
+    id: '5', nama: 'Eko Prasetyo', kelas: 'XII-A', nis: '131301', ortu: 'Bpk. Prasetyo',
+    tasks: [{ id: 't5', mapel: 'Sosiologi', deskripsi: 'Revisi Makalah Perubahan Sosial', isDone: false }]
+  },
+  { id: '6', nama: 'Fajar Nugraha', kelas: 'XII-F', nis: '131350', ortu: 'Ibu Nugraha', tasks: [] }
+];
+
+export default function SiTuntasApp() {
+  const [students, setStudents] = useState<Student[]>(initialStudents);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'guru' | 'walikelas'>('dashboard');
+  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  
+  // State untuk Filter Wali Kelas
+  const [waliKelasFilter, setWaliKelasFilter] = useState<string>('X-A');
+
+  // --- Logic Helper ---
+  const getStatus = (student: Student) => {
+    const pendingTasks = student.tasks.filter(t => !t.isDone);
+    return pendingTasks.length > 0 ? 'DITAHAN' : 'AMAN';
+  };
+
+  const totalDitahan = students.filter(s => getStatus(s) === 'DITAHAN').length;
+  const totalAman = students.filter(s => getStatus(s) === 'AMAN').length;
+
+  // --- Handlers ---
+  const toggleTaskStatus = (studentId: string, taskId: string) => {
+    setStudents(prev => prev.map(s => {
+      if (s.id !== studentId) return s;
+      return {
+        ...s,
+        tasks: s.tasks.map(t => t.id === taskId ? { ...t, isDone: !t.isDone } : t)
+      };
+    }));
+  };
+
+  const addTask = (studentId: string, mapel: string, deskripsi: string) => {
+    setStudents(prev => prev.map(s => {
+      if (s.id !== studentId) return s;
+      return {
+        ...s,
+        tasks: [...s.tasks, { id: Date.now().toString(), mapel, deskripsi, isDone: false }]
+      };
+    }));
+  };
+
+  const deleteTask = (studentId: string, taskId: string) => {
+    setStudents(prev => prev.map(s => {
+      if (s.id !== studentId) return s;
+      return {
+        ...s,
+        tasks: s.tasks.filter(t => t.id !== taskId)
+      };
+    }));
+  };
+
+  // --- Components ---
+
+  const DashboardView = () => (
+    <div className="space-y-6 animate-fade-in">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-blue-100 rounded-lg text-blue-600">
+              <Users size={24} />
+            </div>
+            <div>
+              <p className="text-sm text-slate-500 font-medium">Total Siswa (Semua Tingkat)</p>
+              <h3 className="text-2xl font-bold text-slate-800">{students.length}</h3>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-red-100 rounded-lg text-red-600">
+              <FileWarning size={24} />
+            </div>
+            <div>
+              <p className="text-sm text-slate-500 font-medium">Total Rapor Ditahan</p>
+              <h3 className="text-2xl font-bold text-slate-800">{totalDitahan}</h3>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-green-100 rounded-lg text-green-600">
+              <CheckCircle size={24} />
+            </div>
+            <div>
+              <p className="text-sm text-slate-500 font-medium">Siap Bagi Rapor</p>
+              <h3 className="text-2xl font-bold text-slate-800">{totalAman}</h3>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg">
+        <h4 className="font-bold text-blue-800 mb-1">Info Akademik Kurikulum Madrasah</h4>
+        <p className="text-sm text-blue-700">
+          Daftar mata pelajaran telah disesuaikan dengan struktur KMA terbaru untuk jenjang MA (Umum, PAI & Bahasa Arab, serta Mapel Pilihan). Gunakan sistem ini untuk memastikan ketuntasan kompetensi sebelum pembagian rapor fisik.
+        </p>
+      </div>
+    </div>
+  );
+
+  const GuruView = () => {
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const filteredStudents = students.filter(s => 
+      s.nama.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      s.kelas.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      s.nis.includes(searchTerm)
+    );
+
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800">Panel Guru Mata Pelajaran</h2>
+            <p className="text-sm text-slate-500">Cari siswa lintas kelas untuk input tagihan</p>
+          </div>
+          <div className="relative w-full md:w-64">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+            <input 
+              type="text" 
+              placeholder="Cari Nama / Kelas / NIS..." 
+              className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          {filteredStudents.length === 0 ? (
+             <div className="p-8 text-center text-slate-500">
+               Data siswa tidak ditemukan.
+             </div>
+          ) : (
+            filteredStudents.map(student => (
+              <div key={student.id} className="border-b last:border-0 p-4 hover:bg-slate-50">
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-sm">
+                      {student.kelas.split('-')[0]}
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-lg text-slate-800">{student.nama} <span className="bg-slate-100 px-2 py-0.5 rounded text-xs text-slate-600 font-normal">{student.kelas}</span></h3>
+                      <p className="text-xs text-slate-400">NIS: {student.nis}</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => { setSelectedStudent(student); setShowTaskModal(true); }}
+                    className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-md text-sm font-medium hover:bg-blue-200 flex items-center gap-1"
+                  >
+                    <Plus size={16} /> Tambah Tagihan
+                  </button>
+                </div>
+
+                {student.tasks.length === 0 ? (
+                  <p className="text-sm text-slate-400 italic ml-14">Tidak ada tanggungan remedial.</p>
+                ) : (
+                  <div className="space-y-2 ml-14">
+                    {student.tasks.map(task => (
+                      <div key={task.id} className={`flex items-center justify-between p-3 rounded-lg border ${task.isDone ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                        <div className="flex items-center gap-3">
+                          <button 
+                            onClick={() => toggleTaskStatus(student.id, task.id)}
+                            className={`w-6 h-6 rounded-full flex items-center justify-center border transition-colors ${task.isDone ? 'bg-green-500 border-green-500 text-white' : 'bg-white border-slate-300'}`}
+                            title={task.isDone ? "Tandai Belum Selesai" : "Tandai Selesai"}
+                          >
+                            {task.isDone && <CheckCircle size={14} />}
+                          </button>
+                          <div>
+                            <p className={`font-medium ${task.isDone ? 'text-green-800 line-through' : 'text-red-800'}`}>{task.mapel}</p>
+                            <p className={`text-sm ${task.isDone ? 'text-green-600' : 'text-red-600'}`}>{task.deskripsi}</p>
+                          </div>
+                        </div>
+                        <button 
+                           onClick={() => deleteTask(student.id, task.id)}
+                           className="text-slate-400 hover:text-red-500 p-1"
+                           title="Hapus Tagihan"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const WaliKelasView = () => {
+    // Filter siswa berdasarkan kelas yang dipilih wali kelas
+    const classStudents = students.filter(s => s.kelas === waliKelasFilter);
+    const classDitahan = classStudents.filter(s => getStatus(s) === 'DITAHAN').length;
+    const classAman = classStudents.filter(s => getStatus(s) === 'AMAN').length;
+
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b pb-4">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800">Panel Wali Kelas</h2>
+            <p className="text-sm text-slate-500">Monitoring ketuntasan per rombel</p>
+          </div>
+          
+          <div className="flex items-center gap-2 bg-white p-2 rounded-lg border shadow-sm">
+            <School size={20} className="text-slate-500 ml-2" />
+            <select 
+              value={waliKelasFilter}
+              onChange={(e) => setWaliKelasFilter(e.target.value)}
+              className="bg-transparent border-none outline-none text-slate-700 font-semibold cursor-pointer min-w-[150px]"
+            >
+              {CLASSES.map(cls => (
+                <option key={cls} value={cls}>Kelas {cls}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Statistik Kecil per Kelas */}
+        <div className="flex gap-4 mb-4">
+          <div className="bg-red-50 text-red-700 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
+            <AlertTriangle size={16} /> Ditahan: {classDitahan}
+          </div>
+          <div className="bg-green-50 text-green-700 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
+             <CheckCircle size={16} /> Aman: {classAman}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          {classStudents.length === 0 ? (
+            <div className="p-12 text-center">
+              <p className="text-slate-400 mb-2">Belum ada data siswa untuk kelas {waliKelasFilter}</p>
+              <p className="text-xs text-slate-400">Silakan tambahkan data siswa atau pilih kelas lain.</p>
+            </div>
+          ) : (
+            <table className="w-full text-left">
+              <thead className="bg-slate-50 border-b">
+                <tr>
+                  <th className="p-4 font-semibold text-slate-600">Nama Siswa</th>
+                  <th className="p-4 font-semibold text-slate-600">NIS</th>
+                  <th className="p-4 font-semibold text-slate-600">Status Rapor</th>
+                  <th className="p-4 font-semibold text-slate-600">Detail Hutang</th>
+                  <th className="p-4 font-semibold text-slate-600 text-right">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {classStudents.map(student => {
+                  const status = getStatus(student);
+                  const pendingTasks = student.tasks.filter(t => !t.isDone);
+                  return (
+                    <tr key={student.id} className="hover:bg-slate-50">
+                      <td className="p-4 font-medium text-slate-800">{student.nama}</td>
+                      <td className="p-4 text-slate-500 text-sm">{student.nis}</td>
+                      <td className="p-4">
+                        {status === 'DITAHAN' ? (
+                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-700">
+                            <AlertTriangle size={12} /> DITAHAN
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-green-100 text-green-700">
+                            <CheckCircle size={12} /> BOLEH DIAMBIL
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-4">
+                         {pendingTasks.length > 0 ? (
+                           <div className="flex flex-col gap-1">
+                             {pendingTasks.map(t => (
+                               <span key={t.id} className="text-xs bg-red-50 text-red-600 px-2 py-0.5 rounded border border-red-100 w-fit">
+                                 {t.mapel}
+                               </span>
+                             ))}
+                           </div>
+                         ) : (
+                           <span className="text-slate-400 text-sm">-</span>
+                         )}
+                      </td>
+                      <td className="p-4 text-right">
+                        {status === 'DITAHAN' && (
+                          <button 
+                            onClick={() => { setSelectedStudent(student); setShowPrintModal(true); }}
+                            className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-800 text-white text-sm rounded-lg hover:bg-slate-700 transition-colors"
+                          >
+                            <Printer size={16} /> Surat
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // --- Modals ---
+
+  const AddTaskModal = () => {
+    const [mapel, setMapel] = useState('');
+    const [deskripsi, setDeskripsi] = useState('');
+
+    if (!showTaskModal || !selectedStudent) return null;
+
+    const handleSubmit = (e: React.FormEvent) => {
+      e.preventDefault();
+      if(mapel && deskripsi) {
+        addTask(selectedStudent.id, mapel, deskripsi);
+        setMapel('');
+        setDeskripsi('');
+        setShowTaskModal(false);
+      }
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in duration-200">
+          <h3 className="text-lg font-bold mb-4">Tambah Tagihan Remedial</h3>
+          <div className="mb-4 p-3 bg-blue-50 rounded-lg text-sm text-blue-800">
+            Siswa: <strong>{selectedStudent.nama}</strong> ({selectedStudent.kelas})
+          </div>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Mata Pelajaran (Kurikulum MA)</label>
+              <select 
+                className="w-full border rounded-lg p-2"
+                value={mapel}
+                onChange={(e) => setMapel(e.target.value)}
+                required
+              >
+                <option value="">-- Pilih Mapel --</option>
+                <optgroup label="Kelompok PAI & Bahasa Arab">
+                  {SUBJECTS.PAI.map(m => <option key={m} value={m}>{m}</option>)}
+                </optgroup>
+                <optgroup label="Kelompok Umum">
+                  {SUBJECTS.Umum.map(m => <option key={m} value={m}>{m}</option>)}
+                </optgroup>
+                <optgroup label="Mapel Pilihan (MIPA/IPS/BHS)">
+                  {SUBJECTS.PilihanMIPA_IPS_BHS.map(m => <option key={m} value={m}>{m}</option>)}
+                </optgroup>
+                <optgroup label="Mapel Pilihan Keagamaan">
+                  {SUBJECTS.PilihanKeagamaan.map(m => <option key={m} value={m}>{m}</option>)}
+                </optgroup>
+                <optgroup label="Lainnya">
+                  {SUBJECTS.MuatanLokal.map(m => <option key={m} value={m}>{m}</option>)}
+                </optgroup>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Deskripsi Tugas/Kompetensi</label>
+              <textarea 
+                className="w-full border rounded-lg p-2"
+                rows={3}
+                placeholder="Contoh: Mengerjakan 5 soal esai bab Statistik"
+                value={deskripsi}
+                onChange={(e) => setDeskripsi(e.target.value)}
+                required
+              />
+            </div>
+            <div className="flex justify-end gap-2 pt-4">
+              <button 
+                type="button"
+                onClick={() => setShowTaskModal(false)}
+                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                Batal
+              </button>
+              <button 
+                type="submit"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                Simpan
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    );
+  };
+
+  const PrintPreviewModal = () => {
+    if (!showPrintModal || !selectedStudent) return null;
+
+    const pendingTasks = selectedStudent.tasks.filter(t => !t.isDone);
+
+    // Fungsi untuk membuat file Word
+    const handleDownloadWord = () => {
+      const headerContent = `
+        <div style="text-align: center; border-bottom: 2px solid black; padding-bottom: 10px; margin-bottom: 20px;">
+          <h2 style="margin: 0; font-size: 16pt;">KEMENTERIAN AGAMA KABUPATEN BANGGAI</h2>
+          <h1 style="margin: 5px 0; font-size: 18pt;">MADRASAH ALIYAH NEGERI (MAN) BANGGAI</h1>
+          <p style="margin: 0; font-size: 10pt;">Jl. Pendidikan No. 123, Banggai</p>
+        </div>
+      `;
+
+      const bodyContent = `
+        <h3 style="text-align: center; text-decoration: underline;">SURAT PERNYATAAN KOMITMEN AKADEMIK</h3>
+        <br/>
+        <p>Saya yang bertanda tangan di bawah ini:</p>
+        <table style="width: 100%; border: none;">
+          <tr><td style="width: 150px;">Nama Siswa</td><td>: ${selectedStudent.nama}</td></tr>
+          <tr><td>Kelas</td><td>: ${selectedStudent.kelas}</td></tr>
+          <tr><td>NIS</td><td>: ${selectedStudent.nis}</td></tr>
+          <tr><td>Nama Orang Tua</td><td>: ${selectedStudent.ortu}</td></tr>
+        </table>
+
+        <p style="text-align: justify;">
+          Dengan ini menyatakan mengetahui bahwa nilai <strong>Rapor Digital Madrasah (RDM)</strong> Semester ini telah diisi sesuai standar KKTP. Namun, berdasarkan fakta akademik, siswa tersebut masih memiliki tanggungan kompetensi pada mata pelajaran berikut:
+        </p>
+
+        <table style="width: 100%; border-collapse: collapse; border: 1px solid black;">
+          <thead>
+            <tr style="background-color: #f3f4f6;">
+              <th style="border: 1px solid black; padding: 8px; width: 40px; text-align: center;">No</th>
+              <th style="border: 1px solid black; padding: 8px;">Mata Pelajaran</th>
+              <th style="border: 1px solid black; padding: 8px;">Deskripsi Tanggungan</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${pendingTasks.map((t, idx) => `
+              <tr>
+                <td style="border: 1px solid black; padding: 8px; text-align: center;">${idx + 1}</td>
+                <td style="border: 1px solid black; padding: 8px;">${t.mapel}</td>
+                <td style="border: 1px solid black; padding: 8px;">${t.deskripsi}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+
+        <p style="text-align: justify;">
+          Kami berjanji akan menyelesaikan tanggungan tersebut sesuai jadwal remedial. Kami bersedia <strong>Rapor Fisik Asli ditahan</strong> oleh pihak Madrasah sebagai jaminan hingga seluruh tanggungan diselesaikan.
+        </p>
+
+        <br/><br/>
+        <table style="width: 100%; border: none;">
+          <tr>
+            <td style="text-align: center; vertical-align: top;">
+              <p>Mengetahui,</p>
+              <p>Orang Tua/Wali</p>
+              <br/><br/><br/><br/>
+              <p><strong>(${selectedStudent.ortu})</strong></p>
+            </td>
+            <td style="text-align: center; vertical-align: top;">
+              <p>Banggai, ${new Date().toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})}</p>
+              <p>Siswa</p>
+              <br/><br/><br/><br/>
+              <p><strong>(${selectedStudent.nama})</strong></p>
+            </td>
+          </tr>
+          <tr>
+            <td colspan="2" style="text-align: center; padding-top: 30px;">
+               <p>Menyetujui,</p>
+               <p>Wali Kelas ${selectedStudent.kelas}</p>
+               <br/><br/><br/><br/>
+               <p>.............................</p>
+            </td>
+          </tr>
+        </table>
+      `;
+
+      const fullHtml = `
+        <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+        <head><meta charset='utf-8'><title>Surat Pernyataan - ${selectedStudent.nama}</title></head>
+        <body style="font-family: 'Times New Roman', serif;">
+          ${headerContent}
+          ${bodyContent}
+        </body>
+        </html>
+      `;
+
+      const blob = new Blob(['\ufeff', fullHtml], {
+        type: 'application/msword'
+      });
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Surat_Pernyataan_${selectedStudent.nama.replace(/\s+/g, '_')}.doc`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    };
+
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+        <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full my-8 flex flex-col max-h-[90vh]">
+          {/* Modal Header */}
+          <div className="p-4 border-b flex justify-between items-center bg-slate-50 rounded-t-xl">
+            <h3 className="font-bold text-slate-800">Pratinjau Dokumen</h3>
+            <button onClick={() => setShowPrintModal(false)} className="text-slate-400 hover:text-slate-600">
+              <XCircle size={24} />
+            </button>
+          </div>
+
+          {/* Document Content (Scrollable Preview) */}
+          <div className="p-8 overflow-y-auto bg-white font-serif text-sm leading-relaxed border-b">
+            <div className="text-center mb-6 border-b-2 border-black pb-4">
+              <h1 className="font-bold text-lg uppercase">KEMENTERIAN AGAMA KABUPATEN BANGGAI</h1>
+              <h2 className="font-bold text-xl uppercase">MADRASAH ALIYAH NEGERI (MAN) BANGGAI</h2>
+              <p className="text-xs">Jl. Pendidikan No. 123, Banggai</p>
+            </div>
+
+            <h3 className="text-center font-bold underline mb-6">SURAT PERNYATAAN KOMITMEN AKADEMIK</h3>
+
+            <p className="mb-4">Saya yang bertanda tangan di bawah ini:</p>
+            <table className="w-full mb-4">
+              <tbody>
+                <tr><td className="w-32">Nama Siswa</td><td>: {selectedStudent.nama}</td></tr>
+                <tr><td>Kelas</td><td>: {selectedStudent.kelas}</td></tr>
+                <tr><td>NIS</td><td>: {selectedStudent.nis}</td></tr>
+                <tr><td>Nama Orang Tua</td><td>: {selectedStudent.ortu}</td></tr>
+              </tbody>
+            </table>
+
+            <p className="mb-4 text-justify">
+              Dengan ini menyatakan mengetahui bahwa nilai <strong>Rapor Digital Madrasah (RDM)</strong> Semester ini telah diisi sesuai standar KKTP. Namun, berdasarkan fakta akademik, siswa tersebut masih memiliki tanggungan kompetensi pada mata pelajaran berikut:
+            </p>
+
+            <table className="w-full border-collapse border border-black mb-6">
+              <thead>
+                <tr className="bg-gray-100">
+                  <th className="border border-black p-2 text-center w-12">No</th>
+                  <th className="border border-black p-2">Mata Pelajaran</th>
+                  <th className="border border-black p-2">Deskripsi Tanggungan</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingTasks.map((t, idx) => (
+                  <tr key={t.id}>
+                    <td className="border border-black p-2 text-center">{idx + 1}</td>
+                    <td className="border border-black p-2">{t.mapel}</td>
+                    <td className="border border-black p-2">{t.deskripsi}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <p className="mb-8 text-justify">
+              Kami berjanji akan menyelesaikan tanggungan tersebut sesuai jadwal remedial. Kami bersedia <strong>Rapor Fisik Asli ditahan</strong> oleh pihak Madrasah sebagai jaminan hingga seluruh tanggungan diselesaikan.
+            </p>
+
+            <div className="flex justify-between mt-12">
+              <div className="text-center">
+                <p>Mengetahui,</p>
+                <p>Orang Tua/Wali</p>
+                <br /><br /><br />
+                <p className="font-bold">({selectedStudent.ortu})</p>
+              </div>
+              <div className="text-center">
+                <p>Banggai, {new Date().toLocaleDateString('id-ID', {day: 'numeric', month: 'long', year: 'numeric'})}</p>
+                <p>Siswa</p>
+                <br /><br /><br />
+                <p className="font-bold">({selectedStudent.nama})</p>
+              </div>
+            </div>
+            <div className="text-center mt-8">
+               <p>Menyetujui,</p>
+               <p>Wali Kelas {selectedStudent.kelas}</p>
+               <br /><br />
+               <p className="text-slate-400">.............................</p>
+            </div>
+          </div>
+
+          {/* Modal Footer */}
+          <div className="p-4 bg-slate-50 rounded-b-xl flex justify-between items-center">
+             <span className="text-xs text-slate-500 italic">File akan diunduh dalam format .doc (Microsoft Word)</span>
+             <div className="flex gap-2">
+                <button 
+                  onClick={() => setShowPrintModal(false)}
+                  className="px-4 py-2 border rounded-lg hover:bg-slate-100"
+                >
+                  Tutup
+                </button>
+                <button 
+                  className="px-4 py-2 bg-blue-800 text-white rounded-lg hover:bg-blue-900 flex items-center gap-2 shadow-lg"
+                  onClick={handleDownloadWord}
+                >
+                  <FileText size={18} /> Cetak ke Word
+                </button>
+             </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-100 text-slate-800 font-sans">
+      {/* Header */}
+      <header className="bg-white shadow-sm sticky top-0 z-10">
+        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="bg-blue-600 p-2 rounded text-white">
+              <BookOpen size={20} />
+            </div>
+            <div>
+              <h1 className="font-bold text-lg leading-tight text-blue-900">SI-TUNTAS (MAN BANGGAI)</h1>
+              <p className="text-xs text-slate-500">Kontrol Rapor & Remedial</p>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-5xl mx-auto px-4 py-6">
+        
+        {/* Navigation Tabs */}
+        <div className="flex space-x-1 mb-6 bg-slate-200 p-1 rounded-lg w-full md:w-auto inline-flex overflow-x-auto">
+          <button 
+            onClick={() => setActiveTab('dashboard')}
+            className={`px-4 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-all ${activeTab === 'dashboard' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
+          >
+            Dashboard
+          </button>
+          <button 
+             onClick={() => setActiveTab('guru')}
+             className={`px-4 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-all ${activeTab === 'guru' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
+          >
+            Input Guru Mapel
+          </button>
+          <button 
+             onClick={() => setActiveTab('walikelas')}
+             className={`px-4 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-all ${activeTab === 'walikelas' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`}
+          >
+            Panel Wali Kelas
+          </button>
+        </div>
+
+        {activeTab === 'dashboard' && <DashboardView />}
+        {activeTab === 'guru' && <GuruView />}
+        {activeTab === 'walikelas' && <WaliKelasView />}
+
+      </main>
+
+      {/* Render Modals */}
+      <AddTaskModal />
+      <PrintPreviewModal />
+
+    </div>
+  );
+}
