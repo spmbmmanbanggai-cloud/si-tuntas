@@ -4,6 +4,10 @@
 web/.env
 web/.env.*
 
+# Keep env templates committed
+!.env.example
+!web/.env.example
+
 # Dependencies
 node_modules/
 web/node_modules/
