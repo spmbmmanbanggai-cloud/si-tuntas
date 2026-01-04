@@ -168,6 +168,7 @@ values
   ('Pendidikan Jasmani, Olahraga, dan Kesehatan (PJOK)','Umum'),
   ('Prakarya & Kewirausahaan','Umum'),
   ('Informatika','Umum'),
+  ('Koding dan Kecerdasan Artifisial (KKA)','Umum'),
   ('Fisika','PilihanMIPA_IPS_BHS'),
   ('Kimia','PilihanMIPA_IPS_BHS'),
   ('Biologi','PilihanMIPA_IPS_BHS'),
