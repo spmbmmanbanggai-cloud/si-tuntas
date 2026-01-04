@@ -536,7 +536,32 @@ export default function SiTuntasApp(
           });
 
           if (error) {
-            setDataError(error.message);
+            const anyError = error as unknown as {
+              message?: string;
+              context?: unknown;
+            };
+
+            let detail = '';
+            if (anyError?.context) {
+              try {
+                const ctx = anyError.context as any;
+                const status = typeof ctx?.status === 'number' ? `HTTP ${ctx.status}` : '';
+                const body = ctx?.body;
+                const bodyText =
+                  typeof body === 'string'
+                    ? body
+                    : body && typeof body === 'object'
+                      ? JSON.stringify(body)
+                      : '';
+
+                detail = [status, bodyText].filter(Boolean).join(' - ');
+                if (!detail) detail = typeof ctx === 'string' ? ctx : JSON.stringify(ctx);
+              } catch {
+                detail = '';
+              }
+            }
+
+            setDataError(detail ? `${error.message} (${detail})` : error.message);
             return;
           }
           if (!data?.ok) {
