@@ -50,11 +50,16 @@ Deno.serve(async (req) => {
       return json(401, { error: 'Missing Authorization bearer token.' })
     }
 
+    const jwt = authHeader.slice('bearer '.length).trim()
+    if (!jwt) {
+      return json(401, { error: 'Missing Authorization bearer token.' })
+    }
+
     const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       global: { headers: { Authorization: authHeader } },
     })
 
-    const { data: userData, error: userError } = await userClient.auth.getUser()
+    const { data: userData, error: userError } = await userClient.auth.getUser(jwt)
     if (userError || !userData?.user) {
       return json(401, { error: 'Invalid session.', detail: userError?.message ?? null })
     }
