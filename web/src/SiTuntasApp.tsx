@@ -143,8 +143,8 @@ export default function SiTuntasApp(
   const [dataError, setDataError] = useState<string | null>(null);
   const canSeeWaliKelas = props.role === 'admin' || props.role === 'walikelas';
   const canManageStudents = props.role === 'admin' || props.role === 'walikelas' || props.role === 'guru';
-  const defaultTab: 'dashboard' | 'guru' | 'walikelas' | 'students' = canSeeWaliKelas ? 'dashboard' : 'guru';
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'guru' | 'walikelas' | 'students'>(defaultTab);
+  const defaultTab: 'dashboard' | 'guru' | 'walikelas' | 'students' | 'teachers' = canSeeWaliKelas ? 'dashboard' : 'guru';
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'guru' | 'walikelas' | 'students' | 'teachers'>(defaultTab);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -511,6 +511,94 @@ export default function SiTuntasApp(
 
   // --- Components ---
 
+  const AdminCreateTeacherCard = () => {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [displayName, setDisplayName] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [result, setResult] = useState<string | null>(null);
+
+    if (props.role !== 'admin') return null;
+
+    const onSubmit = (e: React.FormEvent) => {
+      e.preventDefault();
+      void (async () => {
+        setDataError(null);
+        setResult(null);
+        setBusy(true);
+        try {
+          const { data, error } = await sb.functions.invoke('create-user', {
+            body: {
+              email: email.trim(),
+              password,
+              display_name: displayName.trim() ? displayName.trim() : null,
+            },
+          });
+
+          if (error) {
+            setDataError(error.message);
+            return;
+          }
+          if (!data?.ok) {
+            setDataError(data?.error ?? 'Gagal membuat akun.');
+            return;
+          }
+
+          setResult(`Akun guru dibuat: ${data.user?.email ?? email.trim()}`);
+          setEmail('');
+          setPassword('');
+          setDisplayName('');
+          await props.reloadProfile?.();
+        } finally {
+          setBusy(false);
+        }
+      })();
+    };
+
+    return (
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+        <h4 className="font-bold text-slate-800 mb-1">Tambah Akun Guru</h4>
+        <p className="text-sm text-slate-500 mb-4">Buat akun login guru (email + password). Role akan otomatis: guru.</p>
+        <form onSubmit={onSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <input
+            className="border rounded-lg p-2"
+            placeholder="Email guru"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+          <input
+            className="border rounded-lg p-2"
+            placeholder="Password (min 6)"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            type="password"
+          />
+          <input
+            className="border rounded-lg p-2"
+            placeholder="Nama guru (opsional)"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+          />
+          <div className="md:col-span-3 flex items-center justify-between gap-3">
+            <div className="text-xs text-slate-400">Catatan: fitur ini butuh Supabase Edge Function `create-user`.</div>
+            <button
+              type="submit"
+              disabled={busy}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60"
+            >
+              {busy ? 'Membuat...' : 'Buat Akun'}
+            </button>
+          </div>
+        </form>
+        {result && (
+          <div className="mt-3 text-sm text-green-700 bg-green-50 border border-green-200 p-3 rounded-lg">{result}</div>
+        )}
+      </div>
+    );
+  };
+
   const DashboardView = () => {
     const allTasks = students.flatMap((s) => s.tasks.map((t) => ({ student: s, task: t })));
     const byTeacher = new Map<string, { teacherId: string; total: number; open: number; done: number }>();
@@ -527,94 +615,6 @@ export default function SiTuntasApp(
     const teacherRows = Array.from(byTeacher.values())
       .filter((r) => r.teacherId !== 'unknown')
       .sort((a, b) => b.open - a.open);
-
-    const AdminCreateTeacherCard = () => {
-      const [email, setEmail] = useState('');
-      const [password, setPassword] = useState('');
-      const [displayName, setDisplayName] = useState('');
-      const [busy, setBusy] = useState(false);
-      const [result, setResult] = useState<string | null>(null);
-
-      if (props.role !== 'admin') return null;
-
-      const onSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        void (async () => {
-          setDataError(null);
-          setResult(null);
-          setBusy(true);
-          try {
-            const { data, error } = await sb.functions.invoke('create-user', {
-              body: {
-                email: email.trim(),
-                password,
-                display_name: displayName.trim() ? displayName.trim() : null,
-              },
-            });
-
-            if (error) {
-              setDataError(error.message);
-              return;
-            }
-            if (!data?.ok) {
-              setDataError(data?.error ?? 'Gagal membuat akun.');
-              return;
-            }
-
-            setResult(`Akun guru dibuat: ${data.user?.email ?? email.trim()}`);
-            setEmail('');
-            setPassword('');
-            setDisplayName('');
-            await props.reloadProfile?.();
-          } finally {
-            setBusy(false);
-          }
-        })();
-      };
-
-      return (
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <h4 className="font-bold text-slate-800 mb-1">Tambah Akun Guru</h4>
-          <p className="text-sm text-slate-500 mb-4">Buat akun login guru (email + password). Role akan otomatis: guru.</p>
-          <form onSubmit={onSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <input
-              className="border rounded-lg p-2"
-              placeholder="Email guru"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-            <input
-              className="border rounded-lg p-2"
-              placeholder="Password (min 6)"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              type="password"
-            />
-            <input
-              className="border rounded-lg p-2"
-              placeholder="Nama guru (opsional)"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-            />
-            <div className="md:col-span-3 flex items-center justify-between gap-3">
-              <div className="text-xs text-slate-400">Catatan: fungsi ini butuh Supabase Edge Function `create-user`.</div>
-              <button
-                type="submit"
-                disabled={busy}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60"
-              >
-                {busy ? 'Membuat...' : 'Buat Akun'}
-              </button>
-            </div>
-          </form>
-          {result && (
-            <div className="mt-3 text-sm text-green-700 bg-green-50 border border-green-200 p-3 rounded-lg">{result}</div>
-          )}
-        </div>
-      );
-    };
 
     return (
     <div className="space-y-6 animate-fade-in">
@@ -697,6 +697,151 @@ export default function SiTuntasApp(
       <AdminCreateTeacherCard />
     </div>
     )
+  };
+
+  const TeachersView = () => {
+    type TeacherProfile = { id: string; display_name: string | null };
+    type SubjectRow = { id: string; name: string };
+    type ClassRow = { name: string };
+
+    const [teachers, setTeachers] = useState<TeacherProfile[]>([]);
+    const [subjects, setSubjects] = useState<SubjectRow[]>([]);
+    const [classes, setClasses] = useState<ClassRow[]>([]);
+    const [teacherId, setTeacherId] = useState('');
+    const [subjectId, setSubjectId] = useState('');
+    const [className, setClassName] = useState('');
+    const [busy, setBusy] = useState(false);
+    const [result, setResult] = useState<string | null>(null);
+    const [localError, setLocalError] = useState<string | null>(null);
+
+    useEffect(() => {
+      if (props.role !== 'admin') return;
+      void (async () => {
+        setLocalError(null);
+        const [{ data: tData, error: tErr }, { data: sData, error: sErr }, { data: cData, error: cErr }] =
+          await Promise.all([
+            sb.from('profiles').select('id,display_name').eq('role', 'guru').order('display_name', { ascending: true }),
+            sb.from('subjects').select('id,name').order('group_name', { ascending: true }).order('name', { ascending: true }),
+            sb.from('classes').select('name').order('name', { ascending: true }),
+          ]);
+
+        if (tErr || sErr || cErr) {
+          setLocalError((tErr ?? sErr ?? cErr)?.message ?? 'Gagal memuat data guru/mapel/kelas.');
+          setTeachers([]);
+          setSubjects([]);
+          setClasses([]);
+          return;
+        }
+
+        setTeachers((tData as TeacherProfile[] | null) ?? []);
+        setSubjects((sData as SubjectRow[] | null) ?? []);
+        setClasses((cData as ClassRow[] | null) ?? []);
+
+        if (!className) {
+          const firstClass = ((cData as ClassRow[] | null) ?? [])[0]?.name;
+          if (firstClass) setClassName(firstClass);
+        }
+      })();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    if (props.role !== 'admin') {
+      return (
+        <div className="bg-white border border-slate-200 rounded-xl p-6 text-sm text-slate-600">
+          Menu ini hanya untuk admin.
+        </div>
+      );
+    }
+
+    const onAssign = (e: React.FormEvent) => {
+      e.preventDefault();
+      void (async () => {
+        setDataError(null);
+        setLocalError(null);
+        setResult(null);
+        setBusy(true);
+        try {
+          const { error } = await sb.from('teacher_assignments').insert({
+            teacher_id: teacherId,
+            subject_id: subjectId,
+            class_name: className,
+            term_id: null,
+          });
+          if (error) {
+            setLocalError(error.message);
+            return;
+          }
+          setResult('Penugasan tersimpan. Guru bisa refresh untuk melihat mapel/kelas ajar.');
+          setTeacherId('');
+          setSubjectId('');
+        } finally {
+          setBusy(false);
+        }
+      })();
+    };
+
+    return (
+      <div className="space-y-6 animate-fade-in">
+        <AdminCreateTeacherCard />
+
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <h4 className="font-bold text-slate-800 mb-1">Penugasan Guru (Mapel & Kelas)</h4>
+          <p className="text-sm text-slate-500 mb-4">
+            Isi penugasan agar guru hanya bisa input/lihat data pada kelas yang diajar.
+          </p>
+
+          {localError && (
+            <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 p-3 rounded-lg">{localError}</div>
+          )}
+          {result && (
+            <div className="mb-3 text-sm text-green-700 bg-green-50 border border-green-200 p-3 rounded-lg">{result}</div>
+          )}
+
+          <form onSubmit={onAssign} className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <select className="border rounded-lg p-2" value={teacherId} onChange={(e) => setTeacherId(e.target.value)} required>
+              <option value="">Pilih Guru</option>
+              {teachers.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.display_name?.trim() ? t.display_name.trim() : `User ${t.id.slice(0, 8)}`}
+                </option>
+              ))}
+            </select>
+
+            <select className="border rounded-lg p-2" value={subjectId} onChange={(e) => setSubjectId(e.target.value)} required>
+              <option value="">Pilih Mapel</option>
+              {subjects.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+
+            <select className="border rounded-lg p-2" value={className} onChange={(e) => setClassName(e.target.value)} required>
+              <option value="">Pilih Kelas</option>
+              {(classes.length ? classes.map((c) => c.name) : CLASSES).map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+
+            <div className="md:col-span-3 flex items-center justify-end">
+              <button
+                type="submit"
+                disabled={busy}
+                className="px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 disabled:opacity-60"
+              >
+                {busy ? 'Menyimpan...' : 'Simpan Penugasan'}
+              </button>
+            </div>
+          </form>
+
+          <p className="text-xs text-slate-400 mt-3">
+            Jika dropdown mapel/kelas kosong atau error, pastikan kamu sudah menjalankan schema terbaru di Supabase (file schema.sql).
+          </p>
+        </div>
+      </div>
+    );
   };
 
   const GuruView = () => {
@@ -1897,6 +2042,16 @@ export default function SiTuntasApp(
               Data Siswa
             </button>
           )}
+          {props.role === 'admin' && (
+            <button
+              onClick={() => setActiveTab('teachers')}
+              className={`px-4 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-all ${
+                activeTab === 'teachers' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-800'
+              }`}
+            >
+              Data Guru
+            </button>
+          )}
           <button
             onClick={() => setActiveTab('guru')}
             className={`px-4 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-all ${
@@ -1921,6 +2076,7 @@ export default function SiTuntasApp(
 
         {activeTab === 'dashboard' && <DashboardView />}
         {activeTab === 'students' && canManageStudents && <StudentsAdminView />}
+        {activeTab === 'teachers' && <TeachersView />}
         {activeTab === 'guru' && <GuruView />}
         {activeTab === 'walikelas' && canSeeWaliKelas && <WaliKelasView />}
       </main>
