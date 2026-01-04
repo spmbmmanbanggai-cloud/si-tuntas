@@ -989,19 +989,42 @@ export default function SiTuntasApp(
                                       if (editDisplayName.trim()) body.display_name = editDisplayName.trim();
                                       if (editPassword.trim()) body.password = editPassword;
 
-                                      const { error } = await sb.functions.invoke('update-user', {
-                                        body,
+                                      const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim() ?? '';
+                                      const supabaseAnonKey =
+                                        (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() ?? '';
+                                      if (!supabaseUrl || !supabaseAnonKey) {
+                                        setLocalError('Konfigurasi Supabase belum siap (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).');
+                                        return;
+                                      }
+
+                                      const resp = await fetch(`${supabaseUrl}/functions/v1/update-user`, {
+                                        method: 'POST',
                                         headers: {
+                                          'Content-Type': 'application/json',
+                                          apikey: supabaseAnonKey,
                                           Authorization: `Bearer ${token}`,
                                         },
+                                        body: JSON.stringify(body),
                                       });
 
-                                      if (error) {
-                                        const anyError = error as any;
-                                        const ctx = anyError?.context as any;
-                                        const status = typeof ctx?.status === 'number' ? `HTTP ${ctx.status}` : '';
-                                        const bodyText = ctx?.body ? JSON.stringify(ctx.body) : '';
-                                        setLocalError([anyError?.message, status, bodyText].filter(Boolean).join(' - '));
+                                      const rawText = await resp.text();
+                                      const parsed = (() => {
+                                        try {
+                                          return rawText ? JSON.parse(rawText) : null;
+                                        } catch {
+                                          return null;
+                                        }
+                                      })();
+
+                                      if (!resp.ok) {
+                                        const status = `HTTP ${resp.status}`;
+                                        const detail =
+                                          parsed && typeof parsed === 'object'
+                                            ? JSON.stringify(parsed)
+                                            : rawText
+                                              ? rawText
+                                              : '(empty body)';
+                                        setLocalError([`Edge Function error`, status, detail].filter(Boolean).join(' - '));
                                         return;
                                       }
 
