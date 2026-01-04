@@ -122,7 +122,21 @@ Deno.serve(async (req) => {
 
     // Update profiles fields if provided
     if (email !== undefined || displayName !== undefined) {
-      const payload: Record<string, unknown> = { id: userId }
+      // If the profile row doesn't exist (legacy/mismatched data), an upsert will attempt INSERT.
+      // profiles.role is NOT NULL, so we must provide a role for INSERT.
+      const { data: existingProfile, error: existingProfileErr } = await adminClient
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .maybeSingle()
+
+      if (existingProfileErr) {
+        return json(500, { error: existingProfileErr.message })
+      }
+
+      const roleForInsert = (existingProfile?.role as string | null) ?? 'guru'
+
+      const payload: Record<string, unknown> = { id: userId, role: roleForInsert }
       if (email !== undefined) payload.email = email
       if (displayName !== undefined) payload.display_name = displayName ? displayName : null
 
