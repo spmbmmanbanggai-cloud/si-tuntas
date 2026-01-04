@@ -1,5 +1,5 @@
 // Supabase Edge Function: create-user
-// Creates a new teacher account (Auth user + profiles row).
+// Creates a new staff account (Auth user + profiles row).
 // Security: only callers with profiles.role = 'admin' may use.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
@@ -8,7 +8,7 @@ type CreateUserBody = {
   email: string
   password: string
   display_name?: string | null
-  role?: 'guru' | 'walikelas' | null
+  role?: 'admin' | 'guru' | 'walikelas' | null
   wali_kelas?: string | null
 }
 
@@ -87,8 +87,8 @@ Deno.serve(async (req) => {
   const role = (body.role ?? 'guru')
   const waliKelas = (body.wali_kelas ?? '').trim()
 
-  if (role !== 'guru' && role !== 'walikelas') {
-    return json(400, { error: "Role tidak valid. Gunakan 'guru' atau 'walikelas'." })
+  if (role !== 'admin' && role !== 'guru' && role !== 'walikelas') {
+    return json(400, { error: "Role tidak valid. Gunakan 'admin', 'guru', atau 'walikelas'." })
   }
 
   if (role === 'walikelas') {
@@ -105,6 +105,12 @@ Deno.serve(async (req) => {
     if (classErr) return json(500, { error: classErr.message })
     if (!classRow) {
       return json(400, { error: `Kelas tidak ditemukan: ${waliKelas}. Pastikan sudah ada di tabel classes.` })
+    }
+  } else {
+    // Ensure wali_kelas is not accidentally set for non-walikelas roles.
+    // (We store NULL regardless below, but this gives clearer feedback.)
+    if (waliKelas) {
+      return json(400, { error: 'wali_kelas hanya boleh diisi untuk role wali kelas.' })
     }
   }
 
@@ -130,7 +136,7 @@ Deno.serve(async (req) => {
     return json(500, { error: 'Failed to create user.' })
   }
 
-  // Ensure profile exists and set role to 'guru'.
+  // Ensure profile exists and set role.
   const { error: upsertError } = await adminClient.from('profiles').upsert(
     {
       id: newUserId,

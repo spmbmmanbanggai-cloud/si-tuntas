@@ -515,7 +515,7 @@ export default function SiTuntasApp(
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [displayName, setDisplayName] = useState('');
-    const [accountRole, setAccountRole] = useState<'guru' | 'walikelas'>('guru');
+    const [accountRole, setAccountRole] = useState<'admin' | 'guru' | 'walikelas'>('guru');
     const [waliKelas, setWaliKelas] = useState<string>(CLASSES[0] ?? 'X-A');
     const [busy, setBusy] = useState(false);
     const [result, setResult] = useState<string | null>(null);
@@ -615,9 +615,8 @@ export default function SiTuntasApp(
             return;
           }
 
-          setResult(
-            `${accountRole === 'walikelas' ? 'Akun wali kelas dibuat' : 'Akun guru dibuat'}: ${data.user?.email ?? email.trim()}`,
-          );
+          const label = accountRole === 'admin' ? 'Akun admin dibuat' : accountRole === 'walikelas' ? 'Akun wali kelas dibuat' : 'Akun guru dibuat';
+          setResult(`${label}: ${data.user?.email ?? email.trim()}`);
           setEmail('');
           setPassword('');
           setDisplayName('');
@@ -639,14 +638,15 @@ export default function SiTuntasApp(
           <select
             className="border rounded-lg p-2"
             value={accountRole}
-            onChange={(e) => setAccountRole(e.target.value as 'guru' | 'walikelas')}
+            onChange={(e) => setAccountRole(e.target.value as 'admin' | 'guru' | 'walikelas')}
           >
+            <option value="admin">Admin</option>
             <option value="guru">Guru</option>
             <option value="walikelas">Wali Kelas</option>
           </select>
           <input
             className="border rounded-lg p-2"
-            placeholder="Email guru"
+            placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
@@ -674,7 +674,13 @@ export default function SiTuntasApp(
           )}
           <input
             className="border rounded-lg p-2"
-            placeholder={accountRole === 'walikelas' ? 'Nama wali kelas (opsional)' : 'Nama guru (opsional)'}
+            placeholder={
+              accountRole === 'admin'
+                ? 'Nama admin (opsional)'
+                : accountRole === 'walikelas'
+                  ? 'Nama wali kelas (opsional)'
+                  : 'Nama guru (opsional)'
+            }
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
           />
