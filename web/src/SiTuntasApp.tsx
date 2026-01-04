@@ -552,6 +552,7 @@ export default function SiTuntasApp(
             };
 
             let detail = '';
+            let extraHint = '';
             if (anyError?.context) {
               try {
                 const ctx = anyError.context as any;
@@ -566,12 +567,43 @@ export default function SiTuntasApp(
 
                 detail = [status, bodyText].filter(Boolean).join(' - ');
                 if (!detail) detail = typeof ctx === 'string' ? ctx : JSON.stringify(ctx);
+
+                if (ctx?.status === 401) {
+                  try {
+                    const parts = String(accessToken).split('.');
+                    const payloadRaw = parts.length >= 2 ? parts[1] : '';
+                    const payloadJson = payloadRaw
+                      ? JSON.parse(
+                          decodeURIComponent(
+                            Array.from(atob(payloadRaw.replace(/-/g, '+').replace(/_/g, '/')))
+                              .map((c) => `%${c.charCodeAt(0).toString(16).padStart(2, '0')}`)
+                              .join(''),
+                          ),
+                        )
+                      : null;
+
+                    const iss = payloadJson?.iss ? String(payloadJson.iss) : null;
+                    const exp = typeof payloadJson?.exp === 'number' ? payloadJson.exp : null;
+                    const now = Math.floor(Date.now() / 1000);
+                    const expInfo = exp ? `${exp} (now ${now}${exp < now ? ', expired' : ''})` : 'null';
+
+                    const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim() ?? '';
+                    const projectHint = iss && supabaseUrl && !iss.startsWith(supabaseUrl)
+                      ? 'Kemungkinan besar Supabase project mismatch (token iss tidak cocok dengan VITE_SUPABASE_URL).'
+                      : 'Jika ini tetap 401, cek Verify JWT di Edge Function dan pastikan login admin berada pada Supabase project yang sama.';
+
+                    extraHint = ` Debug: iss=${iss ?? 'null'}; exp=${expInfo}; VITE_SUPABASE_URL=${supabaseUrl || 'null'}. ${projectHint}`;
+                  } catch {
+                    extraHint = ' Debug: gagal decode JWT (cek token / cache browser).';
+                  }
+                }
               } catch {
                 detail = '';
               }
             }
 
-            setDataError(detail ? `${error.message} (${detail})` : error.message);
+            const full = detail ? `${error.message} (${detail})` : error.message;
+            setDataError(extraHint ? `${full}${extraHint}` : full);
             return;
           }
           if (!data?.ok) {
