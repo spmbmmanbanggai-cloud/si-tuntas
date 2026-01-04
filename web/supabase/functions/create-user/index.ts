@@ -50,7 +50,10 @@ Deno.serve(async (req) => {
 
   const { data: userData, error: userError } = await userClient.auth.getUser()
   if (userError || !userData?.user) {
-    return json(401, { error: 'Invalid session.' })
+    return json(401, {
+      error: 'Invalid session.',
+      detail: userError?.message ?? null,
+    })
   }
 
   const callerId = userData.user.id

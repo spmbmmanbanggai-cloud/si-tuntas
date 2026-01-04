@@ -1,0 +1,5 @@
+# Supabase Edge Function config
+# We validate the caller JWT inside the function (auth.getUser + admin role check).
+# Disabling gateway JWT verification makes failures return our JSON error payloads,
+# which is useful for debugging and avoids opaque 401 responses.
+verify_jwt = false
