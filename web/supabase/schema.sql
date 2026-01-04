@@ -5,11 +5,15 @@
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   role text not null check (role in ('admin', 'guru', 'walikelas')),
+  email text,
   display_name text,
   wali_kelas text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Jika schema sudah pernah dijalankan, kolom baru ditambahkan jika belum ada
+alter table public.profiles add column if not exists email text;
 
 create or replace function public.set_updated_at()
 returns trigger language plpgsql as $$

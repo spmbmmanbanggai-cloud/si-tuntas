@@ -511,7 +511,7 @@ export default function SiTuntasApp(
 
   // --- Components ---
 
-  const AdminCreateTeacherCard = () => {
+  const AdminCreateTeacherCard = (propsCard?: { onCreated?: () => Promise<void> }) => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [displayName, setDisplayName] = useState('');
@@ -616,6 +616,7 @@ export default function SiTuntasApp(
           setPassword('');
           setDisplayName('');
           await props.reloadProfile?.();
+          await propsCard?.onCreated?.();
         } finally {
           setBusy(false);
         }
@@ -760,14 +761,12 @@ export default function SiTuntasApp(
           <p className="text-xs text-slate-400 mt-3">Sumber: tasks.created_by (guru yang input ketuntasan).</p>
         </div>
       )}
-
-      <AdminCreateTeacherCard />
     </div>
     )
   };
 
   const TeachersView = () => {
-    type TeacherProfile = { id: string; display_name: string | null };
+    type TeacherProfile = { id: string; display_name: string | null; email: string | null };
     type SubjectRow = { id: string; name: string };
     type ClassRow = { name: string };
 
@@ -781,33 +780,43 @@ export default function SiTuntasApp(
     const [result, setResult] = useState<string | null>(null);
     const [localError, setLocalError] = useState<string | null>(null);
 
+    const [editingTeacherId, setEditingTeacherId] = useState<string | null>(null);
+    const [editEmail, setEditEmail] = useState<string>('');
+    const [editDisplayName, setEditDisplayName] = useState<string>('');
+    const [editPassword, setEditPassword] = useState<string>('');
+    const [savingTeacher, setSavingTeacher] = useState(false);
+
+    const loadAdminTeacherData = async () => {
+      setLocalError(null);
+      const [{ data: tData, error: tErr }, { data: sData, error: sErr }, { data: cData, error: cErr }] =
+        await Promise.all([
+          sb.from('profiles').select('id,display_name,email').eq('role', 'guru').order('display_name', { ascending: true }),
+          sb.from('subjects').select('id,name').order('group_name', { ascending: true }).order('name', { ascending: true }),
+          sb.from('classes').select('name').order('name', { ascending: true }),
+        ]);
+
+      if (tErr || sErr || cErr) {
+        setLocalError((tErr ?? sErr ?? cErr)?.message ?? 'Gagal memuat data guru/mapel/kelas.');
+        setTeachers([]);
+        setSubjects([]);
+        setClasses([]);
+        return;
+      }
+
+      setTeachers((tData as TeacherProfile[] | null) ?? []);
+      setSubjects((sData as SubjectRow[] | null) ?? []);
+      setClasses((cData as ClassRow[] | null) ?? []);
+
+      if (!className) {
+        const firstClass = ((cData as ClassRow[] | null) ?? [])[0]?.name;
+        if (firstClass) setClassName(firstClass);
+      }
+    };
+
     useEffect(() => {
       if (props.role !== 'admin') return;
       void (async () => {
-        setLocalError(null);
-        const [{ data: tData, error: tErr }, { data: sData, error: sErr }, { data: cData, error: cErr }] =
-          await Promise.all([
-            sb.from('profiles').select('id,display_name').eq('role', 'guru').order('display_name', { ascending: true }),
-            sb.from('subjects').select('id,name').order('group_name', { ascending: true }).order('name', { ascending: true }),
-            sb.from('classes').select('name').order('name', { ascending: true }),
-          ]);
-
-        if (tErr || sErr || cErr) {
-          setLocalError((tErr ?? sErr ?? cErr)?.message ?? 'Gagal memuat data guru/mapel/kelas.');
-          setTeachers([]);
-          setSubjects([]);
-          setClasses([]);
-          return;
-        }
-
-        setTeachers((tData as TeacherProfile[] | null) ?? []);
-        setSubjects((sData as SubjectRow[] | null) ?? []);
-        setClasses((cData as ClassRow[] | null) ?? []);
-
-        if (!className) {
-          const firstClass = ((cData as ClassRow[] | null) ?? [])[0]?.name;
-          if (firstClass) setClassName(firstClass);
-        }
+        await loadAdminTeacherData();
       })();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -849,7 +858,168 @@ export default function SiTuntasApp(
 
     return (
       <div className="space-y-6 animate-fade-in">
-        <AdminCreateTeacherCard />
+        <AdminCreateTeacherCard onCreated={loadAdminTeacherData} />
+
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <h4 className="font-bold text-slate-800 mb-1">Daftar Guru</h4>
+          <p className="text-sm text-slate-500 mb-4">Menampilkan akun guru yang sudah dibuat. Admin bisa edit data atau reset password.</p>
+
+          {localError && (
+            <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 p-3 rounded-lg">{localError}</div>
+          )}
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-500 border-b">
+                  <th className="py-2 pr-4">Nama</th>
+                  <th className="py-2 pr-4">Email</th>
+                  <th className="py-2 pr-4">Aksi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {teachers.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="py-3 text-slate-500">Belum ada akun guru.</td>
+                  </tr>
+                ) : (
+                  teachers.map((t) => {
+                    const isEditing = editingTeacherId === t.id;
+                    return (
+                      <tr key={t.id} className="border-b last:border-0 align-top">
+                        <td className="py-2 pr-4 text-slate-800 font-medium">
+                          {isEditing ? (
+                            <input
+                              className="border rounded-lg p-2 w-full min-w-[220px]"
+                              value={editDisplayName}
+                              onChange={(e) => setEditDisplayName(e.target.value)}
+                              placeholder="Nama guru"
+                            />
+                          ) : (
+                            (t.display_name?.trim() ? t.display_name.trim() : `User ${t.id.slice(0, 8)}`)
+                          )}
+                        </td>
+                        <td className="py-2 pr-4 text-slate-700">
+                          {isEditing ? (
+                            <input
+                              className="border rounded-lg p-2 w-full min-w-[240px]"
+                              value={editEmail}
+                              onChange={(e) => setEditEmail(e.target.value)}
+                              placeholder="Email guru"
+                              type="email"
+                            />
+                          ) : (
+                            (t.email?.trim() ? t.email.trim() : '-')
+                          )}
+
+                          {isEditing && (
+                            <div className="mt-2">
+                              <input
+                                className="border rounded-lg p-2 w-full"
+                                value={editPassword}
+                                onChange={(e) => setEditPassword(e.target.value)}
+                                placeholder="Password baru (opsional, min 6)"
+                                type="password"
+                              />
+                              <div className="text-xs text-slate-400 mt-1">Isi password untuk reset ulang.</div>
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2 pr-4">
+                          {isEditing ? (
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                disabled={savingTeacher}
+                                className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60"
+                                onClick={() => {
+                                  void (async () => {
+                                    setDataError(null);
+                                    setLocalError(null);
+                                    setResult(null);
+                                    setSavingTeacher(true);
+                                    try {
+                                      const { data: sessionData } = await sb.auth.getSession();
+                                      const token = sessionData.session?.access_token;
+                                      if (!token) {
+                                        setLocalError('Session login tidak ditemukan. Logout lalu login lagi sebagai admin.');
+                                        return;
+                                      }
+
+                                      const body: any = {
+                                        user_id: t.id,
+                                        email: editEmail.trim() ? editEmail.trim() : null,
+                                        display_name: editDisplayName.trim() ? editDisplayName.trim() : null,
+                                      };
+                                      if (editPassword.trim()) body.password = editPassword;
+
+                                      const { error } = await sb.functions.invoke('update-user', {
+                                        body,
+                                        headers: {
+                                          Authorization: `Bearer ${token}`,
+                                        },
+                                      });
+
+                                      if (error) {
+                                        const anyError = error as any;
+                                        const ctx = anyError?.context as any;
+                                        const status = typeof ctx?.status === 'number' ? `HTTP ${ctx.status}` : '';
+                                        const bodyText = ctx?.body ? JSON.stringify(ctx.body) : '';
+                                        setLocalError([anyError?.message, status, bodyText].filter(Boolean).join(' - '));
+                                        return;
+                                      }
+
+                                      setResult('Data guru tersimpan.');
+                                      setEditingTeacherId(null);
+                                      setEditPassword('');
+                                      await loadAdminTeacherData();
+                                    } finally {
+                                      setSavingTeacher(false);
+                                    }
+                                  })();
+                                }}
+                              >
+                                {savingTeacher ? 'Menyimpan...' : 'Simpan'}
+                              </button>
+                              <button
+                                type="button"
+                                disabled={savingTeacher}
+                                className="px-3 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 disabled:opacity-60"
+                                onClick={() => {
+                                  setEditingTeacherId(null);
+                                  setEditPassword('');
+                                }}
+                              >
+                                Batal
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              className="px-3 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200"
+                              onClick={() => {
+                                setEditingTeacherId(t.id);
+                                setEditEmail(t.email?.trim() ? t.email.trim() : '');
+                                setEditDisplayName(t.display_name?.trim() ? t.display_name.trim() : '');
+                                setEditPassword('');
+                              }}
+                            >
+                              Edit / Reset
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {result && (
+            <div className="mt-3 text-sm text-green-700 bg-green-50 border border-green-200 p-3 rounded-lg">{result}</div>
+          )}
+        </div>
 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <h4 className="font-bold text-slate-800 mb-1">Penugasan Guru (Mapel & Kelas)</h4>

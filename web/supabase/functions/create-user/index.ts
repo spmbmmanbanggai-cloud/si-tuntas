@@ -110,6 +110,7 @@ Deno.serve(async (req) => {
     {
       id: newUserId,
       role: 'guru',
+      email,
       display_name: displayName ? displayName : null,
     },
     { onConflict: 'id' },
