@@ -542,80 +542,53 @@ export default function SiTuntasApp(
             return;
           }
 
-          const { data, error } = await sb.functions.invoke('create-user', {
-            body: {
-              email: email.trim(),
-              password,
-              display_name: displayName.trim() ? displayName.trim() : null,
-              role: accountRole,
-              wali_kelas: accountRole === 'walikelas' ? waliKelas : null,
-            },
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-            },
-          });
-
-          if (error) {
-            const anyError = error as unknown as {
-              message?: string;
-              context?: unknown;
-            };
-
-            let detail = '';
-            let extraHint = '';
-            if (anyError?.context) {
-              try {
-                const ctx = anyError.context as any;
-                const status = typeof ctx?.status === 'number' ? `HTTP ${ctx.status}` : '';
-                const body = ctx?.body;
-                const bodyText =
-                  typeof body === 'string'
-                    ? body
-                    : body && typeof body === 'object'
-                      ? JSON.stringify(body)
-                      : '';
-
-                detail = [status, bodyText].filter(Boolean).join(' - ');
-                if (!detail) detail = typeof ctx === 'string' ? ctx : JSON.stringify(ctx);
-
-                if (ctx?.status === 401) {
-                  try {
-                    const parts = String(accessToken).split('.');
-                    const payloadRaw = parts.length >= 2 ? parts[1] : '';
-                    const payloadJson = payloadRaw
-                      ? JSON.parse(
-                          decodeURIComponent(
-                            Array.from(atob(payloadRaw.replace(/-/g, '+').replace(/_/g, '/')))
-                              .map((c) => `%${c.charCodeAt(0).toString(16).padStart(2, '0')}`)
-                              .join(''),
-                          ),
-                        )
-                      : null;
-
-                    const iss = payloadJson?.iss ? String(payloadJson.iss) : null;
-                    const exp = typeof payloadJson?.exp === 'number' ? payloadJson.exp : null;
-                    const now = Math.floor(Date.now() / 1000);
-                    const expInfo = exp ? `${exp} (now ${now}${exp < now ? ', expired' : ''})` : 'null';
-
-                    const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim() ?? '';
-                    const projectHint = iss && supabaseUrl && !iss.startsWith(supabaseUrl)
-                      ? 'Kemungkinan besar Supabase project mismatch (token iss tidak cocok dengan VITE_SUPABASE_URL).'
-                      : 'Jika ini tetap 401, cek Verify JWT di Edge Function dan pastikan login admin berada pada Supabase project yang sama.';
-
-                    extraHint = ` Debug: iss=${iss ?? 'null'}; exp=${expInfo}; VITE_SUPABASE_URL=${supabaseUrl || 'null'}. ${projectHint}`;
-                  } catch {
-                    extraHint = ' Debug: gagal decode JWT (cek token / cache browser).';
-                  }
-                }
-              } catch {
-                detail = '';
-              }
-            }
-
-            const full = detail ? `${error.message} (${detail})` : error.message;
-            setDataError(extraHint ? `${full}${extraHint}` : full);
+          const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim() ?? '';
+          const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim() ?? '';
+          if (!supabaseUrl || !supabaseAnonKey) {
+            setDataError('Konfigurasi Supabase belum siap (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).');
             return;
           }
+
+          const payload = {
+            email: email.trim(),
+            password,
+            display_name: displayName.trim() ? displayName.trim() : null,
+            role: accountRole,
+            wali_kelas: accountRole === 'walikelas' ? waliKelas : null,
+          };
+
+          const resp = await fetch(`${supabaseUrl}/functions/v1/create-user`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              apikey: supabaseAnonKey,
+              Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify(payload),
+          });
+
+          const rawText = await resp.text();
+          const parsed = (() => {
+            try {
+              return rawText ? JSON.parse(rawText) : null;
+            } catch {
+              return null;
+            }
+          })();
+
+          if (!resp.ok) {
+            const status = `HTTP ${resp.status}`;
+            const detail =
+              parsed && typeof parsed === 'object'
+                ? JSON.stringify(parsed)
+                : rawText
+                  ? rawText
+                  : '(empty body)';
+            setDataError([`Edge Function error`, status, detail].filter(Boolean).join(' - '));
+            return;
+          }
+
+          const data = parsed as any;
           if (!data?.ok) {
             setDataError(data?.error ?? 'Gagal membuat akun.');
             return;
