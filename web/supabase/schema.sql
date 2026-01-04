@@ -105,6 +105,14 @@ for each row execute function public.set_updated_at();
 
 create index if not exists classes_wali_kelas_idx on public.classes (wali_kelas_user_id);
 
+-- Seed data kelas (agar teacher_assignments.class_name bisa diisi)
+insert into public.classes (name)
+values
+  ('X-A'),('X-B'),('X-C'),('X-D'),('X-E'),('X-F'),
+  ('XI-A'),('XI-B'),('XI-C'),('XI-D'),
+  ('XII-A'),('XII-B'),('XII-C'),('XII-D'),('XII-E'),('XII-F')
+on conflict (name) do nothing;
+
 -- Tahun ajaran + semester
 create table if not exists public.academic_terms (
   id uuid primary key default gen_random_uuid(),
@@ -138,6 +146,38 @@ drop trigger if exists trg_subjects_updated_at on public.subjects;
 create trigger trg_subjects_updated_at
 before update on public.subjects
 for each row execute function public.set_updated_at();
+
+-- Seed data mapel (agar admin bisa membuat teacher_assignments)
+insert into public.subjects (name, group_name)
+values
+  (E'Al-Qur''an Hadis','PAI'),
+  ('Akidah Akhlak','PAI'),
+  ('Fikih','PAI'),
+  ('Sejarah Kebudayaan Islam (SKI)','PAI'),
+  ('Bahasa Arab','PAI'),
+  ('Pendidikan Pancasila','Umum'),
+  ('Bahasa Indonesia','Umum'),
+  ('Matematika','Umum'),
+  ('Bahasa Inggris','Umum'),
+  ('Sejarah','Umum'),
+  ('Seni Budaya','Umum'),
+  ('Pendidikan Jasmani, Olahraga, dan Kesehatan (PJOK)','Umum'),
+  ('Prakarya & Kewirausahaan','Umum'),
+  ('Informatika','Umum'),
+  ('Fisika','PilihanMIPA_IPS_BHS'),
+  ('Kimia','PilihanMIPA_IPS_BHS'),
+  ('Biologi','PilihanMIPA_IPS_BHS'),
+  ('Geografi','PilihanMIPA_IPS_BHS'),
+  ('Ekonomi','PilihanMIPA_IPS_BHS'),
+  ('Sosiologi','PilihanMIPA_IPS_BHS'),
+  ('Bahasa Daerah','PilihanMIPA_IPS_BHS'),
+  ('Bahasa Jepang','PilihanMIPA_IPS_BHS'),
+  ('Ilmu Kalam','PilihanKeagamaan'),
+  ('Ilmu Tafsir','PilihanKeagamaan'),
+  ('Ilmu Hadis','PilihanKeagamaan'),
+  ('Ushul Fikih','PilihanKeagamaan'),
+  ('Aswaja/Ke-NU-an','MuatanLokal')
+on conflict (name) do nothing;
 
 -- Penugasan guru: guru siapa mengajar mapel apa di kelas mana (per term)
 create table if not exists public.teacher_assignments (
@@ -183,8 +223,16 @@ alter table public.teacher_assignments enable row level security;
 alter table public.task_actions enable row level security;
 
 -- Helper: cek role user dari profiles
+-- NOTE: SECURITY DEFINER is required here to avoid RLS recursion.
+-- If this function runs as INVOKER, selecting from public.profiles can trigger
+-- policies that call public.my_role() again, causing: stack depth limit exceeded.
 create or replace function public.my_role()
-returns text language sql stable as $$
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
   select role from public.profiles where id = auth.uid();
 $$;
 
@@ -214,7 +262,17 @@ for all using (public.my_role() = 'admin') with check (public.my_role() = 'admin
 drop policy if exists "students_select_staff" on public.students;
 drop policy if exists "students_select_guru" on public.students;
 create policy "students_select_guru" on public.students
-for select using (public.my_role() = 'guru');
+for select
+using (
+  public.my_role() = 'guru'
+  and exists (
+    select 1
+    from public.teacher_assignments ta
+    where ta.teacher_id = auth.uid()
+      and ta.class_name is not null
+      and ta.class_name = public.students.kelas
+  )
+);
 
 -- Wali kelas hanya bisa membaca siswa di kelas wali-nya
 drop policy if exists "students_select_walikelas" on public.students;
@@ -270,6 +328,45 @@ with check (
   )
 );
 
+-- Guru boleh melengkapi data siswa (INSERT/UPDATE) hanya untuk kelas yang dia ajar
+drop policy if exists "students_insert_guru_assigned" on public.students;
+create policy "students_insert_guru_assigned" on public.students
+for insert
+with check (
+  public.my_role() = 'guru'
+  and exists (
+    select 1
+    from public.teacher_assignments ta
+    where ta.teacher_id = auth.uid()
+      and ta.class_name is not null
+      and ta.class_name = public.students.kelas
+  )
+);
+
+drop policy if exists "students_update_guru_assigned" on public.students;
+create policy "students_update_guru_assigned" on public.students
+for update
+using (
+  public.my_role() = 'guru'
+  and exists (
+    select 1
+    from public.teacher_assignments ta
+    where ta.teacher_id = auth.uid()
+      and ta.class_name is not null
+      and ta.class_name = public.students.kelas
+  )
+)
+with check (
+  public.my_role() = 'guru'
+  and exists (
+    select 1
+    from public.teacher_assignments ta
+    where ta.teacher_id = auth.uid()
+      and ta.class_name is not null
+      and ta.class_name = public.students.kelas
+  )
+);
+
 -- Tasks policies
 -- Admin full access
 drop policy if exists "tasks_all_admin" on public.tasks;
@@ -280,8 +377,30 @@ for all using (public.my_role() = 'admin') with check (public.my_role() = 'admin
 drop policy if exists "tasks_write_guru" on public.tasks;
 create policy "tasks_write_guru" on public.tasks
 for all
-using (public.my_role() = 'guru')
-with check (public.my_role() = 'guru');
+using (
+  public.my_role() = 'guru'
+  and exists (
+    select 1
+    from public.students s
+    join public.teacher_assignments ta
+      on ta.teacher_id = auth.uid()
+     and ta.class_name is not null
+     and ta.class_name = s.kelas
+    where s.id = public.tasks.student_id
+  )
+)
+with check (
+  public.my_role() = 'guru'
+  and exists (
+    select 1
+    from public.students s
+    join public.teacher_assignments ta
+      on ta.teacher_id = auth.uid()
+     and ta.class_name is not null
+     and ta.class_name = s.kelas
+    where s.id = public.tasks.student_id
+  )
+);
 
 -- WaliKelas bisa baca task untuk kelas wali-nya
 drop policy if exists "tasks_select_walikelas" on public.tasks;
