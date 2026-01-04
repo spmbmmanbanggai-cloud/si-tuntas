@@ -515,6 +515,8 @@ export default function SiTuntasApp(
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [displayName, setDisplayName] = useState('');
+    const [accountRole, setAccountRole] = useState<'guru' | 'walikelas'>('guru');
+    const [waliKelas, setWaliKelas] = useState<string>(CLASSES[0] ?? 'X-A');
     const [busy, setBusy] = useState(false);
     const [result, setResult] = useState<string | null>(null);
 
@@ -539,6 +541,8 @@ export default function SiTuntasApp(
               email: email.trim(),
               password,
               display_name: displayName.trim() ? displayName.trim() : null,
+              role: accountRole,
+              wali_kelas: accountRole === 'walikelas' ? waliKelas : null,
             },
             headers: {
               Authorization: `Bearer ${accessToken}`,
@@ -611,10 +615,14 @@ export default function SiTuntasApp(
             return;
           }
 
-          setResult(`Akun guru dibuat: ${data.user?.email ?? email.trim()}`);
+          setResult(
+            `${accountRole === 'walikelas' ? 'Akun wali kelas dibuat' : 'Akun guru dibuat'}: ${data.user?.email ?? email.trim()}`,
+          );
           setEmail('');
           setPassword('');
           setDisplayName('');
+          setAccountRole('guru');
+          setWaliKelas(CLASSES[0] ?? 'X-A');
           await props.reloadProfile?.();
           await propsCard?.onCreated?.();
         } finally {
@@ -625,9 +633,17 @@ export default function SiTuntasApp(
 
     return (
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-        <h4 className="font-bold text-slate-800 mb-1">Tambah Akun Guru</h4>
-        <p className="text-sm text-slate-500 mb-4">Buat akun login guru (email + password). Role akan otomatis: guru.</p>
+        <h4 className="font-bold text-slate-800 mb-1">Tambah Akun</h4>
+        <p className="text-sm text-slate-500 mb-4">Buat akun login (email + password) untuk Guru atau Wali Kelas.</p>
         <form onSubmit={onSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <select
+            className="border rounded-lg p-2"
+            value={accountRole}
+            onChange={(e) => setAccountRole(e.target.value as 'guru' | 'walikelas')}
+          >
+            <option value="guru">Guru</option>
+            <option value="walikelas">Wali Kelas</option>
+          </select>
           <input
             className="border rounded-lg p-2"
             placeholder="Email guru"
@@ -643,9 +659,22 @@ export default function SiTuntasApp(
             required
             type="password"
           />
+          {accountRole === 'walikelas' && (
+            <select
+              className="border rounded-lg p-2"
+              value={waliKelas}
+              onChange={(e) => setWaliKelas(e.target.value)}
+            >
+              {CLASSES.map((cls) => (
+                <option key={cls} value={cls}>
+                  {cls}
+                </option>
+              ))}
+            </select>
+          )}
           <input
             className="border rounded-lg p-2"
-            placeholder="Nama guru (opsional)"
+            placeholder={accountRole === 'walikelas' ? 'Nama wali kelas (opsional)' : 'Nama guru (opsional)'}
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
           />

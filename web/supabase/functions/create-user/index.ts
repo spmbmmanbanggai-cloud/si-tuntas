@@ -8,6 +8,8 @@ type CreateUserBody = {
   email: string
   password: string
   display_name?: string | null
+  role?: 'guru' | 'walikelas' | null
+  wali_kelas?: string | null
 }
 
 const corsHeaders: Record<string, string> = {
@@ -82,6 +84,29 @@ Deno.serve(async (req) => {
   const email = (body.email ?? '').trim().toLowerCase()
   const password = body.password ?? ''
   const displayName = (body.display_name ?? '').trim()
+  const role = (body.role ?? 'guru')
+  const waliKelas = (body.wali_kelas ?? '').trim()
+
+  if (role !== 'guru' && role !== 'walikelas') {
+    return json(400, { error: "Role tidak valid. Gunakan 'guru' atau 'walikelas'." })
+  }
+
+  if (role === 'walikelas') {
+    if (!waliKelas) {
+      return json(400, { error: 'Kelas wali wajib diisi untuk role wali kelas.' })
+    }
+
+    const { data: classRow, error: classErr } = await adminClient
+      .from('classes')
+      .select('name')
+      .eq('name', waliKelas)
+      .maybeSingle()
+
+    if (classErr) return json(500, { error: classErr.message })
+    if (!classRow) {
+      return json(400, { error: `Kelas tidak ditemukan: ${waliKelas}. Pastikan sudah ada di tabel classes.` })
+    }
+  }
 
   if (!email || !email.includes('@')) {
     return json(400, { error: 'Email tidak valid.' })
@@ -109,9 +134,10 @@ Deno.serve(async (req) => {
   const { error: upsertError } = await adminClient.from('profiles').upsert(
     {
       id: newUserId,
-      role: 'guru',
+      role,
       email,
       display_name: displayName ? displayName : null,
+      wali_kelas: role === 'walikelas' ? waliKelas : null,
     },
     { onConflict: 'id' },
   )
@@ -125,8 +151,9 @@ Deno.serve(async (req) => {
     user: {
       id: newUserId,
       email,
-      role: 'guru',
+      role,
       display_name: displayName ? displayName : null,
+      wali_kelas: role === 'walikelas' ? waliKelas : null,
     },
   })
 })
