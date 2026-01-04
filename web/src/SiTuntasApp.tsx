@@ -2282,13 +2282,24 @@ export default function SiTuntasApp(
                 void (async () => {
                   try {
                     setDataError(null);
-                    const { error } = await sb.auth.signOut();
-                    if (error) {
-                      setDataError(`Gagal logout: ${error.message}`);
-                      return;
+                    // Try a normal sign out first (may fail if the session is already missing).
+                    try {
+                      // Prefer local scope to avoid unnecessary network calls.
+                      const { error } = await sb.auth.signOut({ scope: 'local' } as any);
+                      if (error && !String(error.message).toLowerCase().includes('auth session missing')) {
+                        setDataError(`Gagal logout: ${error.message}`);
+                        return;
+                      }
+                    } catch (e) {
+                      const msg = e instanceof Error ? e.message : String(e);
+                      if (!msg.toLowerCase().includes('auth session missing')) {
+                        setDataError(`Gagal logout: ${msg}`);
+                        return;
+                      }
+                      // else: ignore and force-clear below
                     }
 
-                    // Extra safety: clear cached auth tokens (helps with stubborn cached sessions).
+                    // Force-clear cached auth tokens (works even if signOut failed).
                     try {
                       const prefix = 'sb-';
                       for (let i = localStorage.length - 1; i >= 0; i -= 1) {
@@ -2296,6 +2307,19 @@ export default function SiTuntasApp(
                         if (!key) continue;
                         if (key.startsWith(prefix) && key.includes('auth-token')) {
                           localStorage.removeItem(key);
+                        }
+                      }
+                    } catch {
+                      // ignore
+                    }
+
+                    try {
+                      const prefix = 'sb-';
+                      for (let i = sessionStorage.length - 1; i >= 0; i -= 1) {
+                        const key = sessionStorage.key(i);
+                        if (!key) continue;
+                        if (key.startsWith(prefix) && key.includes('auth-token')) {
+                          sessionStorage.removeItem(key);
                         }
                       }
                     } catch {
