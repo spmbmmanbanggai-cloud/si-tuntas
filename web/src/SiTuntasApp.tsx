@@ -527,11 +527,21 @@ export default function SiTuntasApp(
         setResult(null);
         setBusy(true);
         try {
+          const { data: sessionData } = await sb.auth.getSession();
+          const accessToken = sessionData.session?.access_token;
+          if (!accessToken) {
+            setDataError('Session login tidak ditemukan / sudah kadaluarsa. Silakan Logout lalu login lagi sebagai admin.');
+            return;
+          }
+
           const { data, error } = await sb.functions.invoke('create-user', {
             body: {
               email: email.trim(),
               password,
               display_name: displayName.trim() ? displayName.trim() : null,
+            },
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
             },
           });
 
