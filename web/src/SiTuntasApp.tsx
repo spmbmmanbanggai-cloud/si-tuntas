@@ -2278,7 +2278,37 @@ export default function SiTuntasApp(
               Refresh
             </button>
             <button
-              onClick={() => void sb.auth.signOut()}
+              onClick={() => {
+                void (async () => {
+                  try {
+                    setDataError(null);
+                    const { error } = await sb.auth.signOut();
+                    if (error) {
+                      setDataError(`Gagal logout: ${error.message}`);
+                      return;
+                    }
+
+                    // Extra safety: clear cached auth tokens (helps with stubborn cached sessions).
+                    try {
+                      const prefix = 'sb-';
+                      for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+                        const key = localStorage.key(i);
+                        if (!key) continue;
+                        if (key.startsWith(prefix) && key.includes('auth-token')) {
+                          localStorage.removeItem(key);
+                        }
+                      }
+                    } catch {
+                      // ignore
+                    }
+
+                    window.location.reload();
+                  } catch (e) {
+                    const msg = e instanceof Error ? e.message : String(e);
+                    setDataError(`Gagal logout: ${msg}`);
+                  }
+                })();
+              }}
               className="px-3 py-1.5 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-700"
               title="Keluar"
             >
