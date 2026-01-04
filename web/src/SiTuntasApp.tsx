@@ -137,15 +137,22 @@ export default function SiTuntasApp(
 
   const [students, setStudents] = useState<Student[]>([]);
   const [teacherNamesById, setTeacherNamesById] = useState<Record<string, string>>({});
+  const [guruKelasAjar, setGuruKelasAjar] = useState<string[]>([]);
+  const [guruMapelAjar, setGuruMapelAjar] = useState<string[]>([]);
   const [loadingData, setLoadingData] = useState(true);
   const [dataError, setDataError] = useState<string | null>(null);
   const canSeeWaliKelas = props.role === 'admin' || props.role === 'walikelas';
-  const canManageStudents = props.role === 'admin' || props.role === 'walikelas';
+  const canManageStudents = props.role === 'admin' || props.role === 'walikelas' || props.role === 'guru';
   const defaultTab: 'dashboard' | 'guru' | 'walikelas' | 'students' = canSeeWaliKelas ? 'dashboard' : 'guru';
   const [activeTab, setActiveTab] = useState<'dashboard' | 'guru' | 'walikelas' | 'students'>(defaultTab);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
+
+  // State untuk Guru: pilih mapel & fokus pencarian siswa bermasalah
+  const [guruMapelFilter, setGuruMapelFilter] = useState<string>('');
+  const [guruKelasFilter, setGuruKelasFilter] = useState<string>('');
+  const [guruOnlyProblematic, setGuruOnlyProblematic] = useState<boolean>(true);
 
   // State untuk Kelola Siswa (Admin)
   const [showStudentModal, setShowStudentModal] = useState(false);
@@ -167,6 +174,33 @@ export default function SiTuntasApp(
         .select('id,student_id,mapel,deskripsi,is_done,created_by,due_date,treatment_note')
         .order('created_at'),
     ]);
+
+    if (props.role === 'guru' && props.userId) {
+      const { data: assignmentsData, error: assignmentsError } = await sb
+        .from('teacher_assignments')
+        .select('class_name, subject:subjects(name)')
+        .eq('teacher_id', props.userId);
+
+      if (assignmentsError) {
+        setGuruKelasAjar([]);
+        setGuruMapelAjar([]);
+      } else {
+        const rows = ((assignmentsData as Array<{ class_name: string | null; subject: Array<{ name: string }> }> | null) ?? []);
+
+        const kelasAll = rows
+          .map((r) => (r.class_name ?? '').trim())
+          .filter((c) => !!c && CLASSES.includes(c));
+        setGuruKelasAjar(Array.from(new Set(kelasAll)).sort());
+
+        const mapelAll = rows
+          .map((r) => (r.subject?.[0]?.name ?? '').trim())
+          .filter((m) => !!m);
+        setGuruMapelAjar(Array.from(new Set(mapelAll)).sort((a, b) => a.localeCompare(b)));
+      }
+    } else {
+      setGuruKelasAjar([]);
+      setGuruMapelAjar([]);
+    }
 
     if (props.role === 'admin') {
       const { data: profilesData } = await sb.from('profiles').select('id,display_name')
@@ -223,7 +257,7 @@ export default function SiTuntasApp(
   const upsertStudent = async (payload: { nama: string; kelas: string; nis: string; ortu?: string | null }) => {
     setDataError(null);
     if (!canManageStudents) {
-      setDataError('Akses ditolak: hanya admin yang bisa mengelola data siswa.');
+      setDataError('Akses ditolak: hanya admin/guru/wali kelas yang bisa mengelola data siswa.');
       return;
     }
 
@@ -235,6 +269,21 @@ export default function SiTuntasApp(
     if (props.role === 'walikelas' && !effectiveClass) {
       setDataError('Akun wali kelas belum punya kelas. Set dulu profiles.wali_kelas (contoh: X-A).');
       return;
+    }
+
+    if (props.role === 'guru') {
+      if (!props.userId) {
+        setDataError('Akun guru belum terdeteksi (userId kosong). Silakan logout/login lagi.');
+        return;
+      }
+      if (guruKelasAjar.length === 0) {
+        setDataError('Kelas ajar belum di-set. Admin perlu mengisi teacher_assignments untuk akun guru ini.');
+        return;
+      }
+      if (!effectiveClass || !guruKelasAjar.includes(effectiveClass)) {
+        setDataError(`Akses ditolak: guru hanya boleh mengelola siswa untuk kelas yang dia ajar (${guruKelasAjar.join(', ')}).`);
+        return;
+      }
     }
 
     if (editingStudentId) {
@@ -479,6 +528,94 @@ export default function SiTuntasApp(
       .filter((r) => r.teacherId !== 'unknown')
       .sort((a, b) => b.open - a.open);
 
+    const AdminCreateTeacherCard = () => {
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [displayName, setDisplayName] = useState('');
+      const [busy, setBusy] = useState(false);
+      const [result, setResult] = useState<string | null>(null);
+
+      if (props.role !== 'admin') return null;
+
+      const onSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        void (async () => {
+          setDataError(null);
+          setResult(null);
+          setBusy(true);
+          try {
+            const { data, error } = await sb.functions.invoke('create-user', {
+              body: {
+                email: email.trim(),
+                password,
+                display_name: displayName.trim() ? displayName.trim() : null,
+              },
+            });
+
+            if (error) {
+              setDataError(error.message);
+              return;
+            }
+            if (!data?.ok) {
+              setDataError(data?.error ?? 'Gagal membuat akun.');
+              return;
+            }
+
+            setResult(`Akun guru dibuat: ${data.user?.email ?? email.trim()}`);
+            setEmail('');
+            setPassword('');
+            setDisplayName('');
+            await props.reloadProfile?.();
+          } finally {
+            setBusy(false);
+          }
+        })();
+      };
+
+      return (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <h4 className="font-bold text-slate-800 mb-1">Tambah Akun Guru</h4>
+          <p className="text-sm text-slate-500 mb-4">Buat akun login guru (email + password). Role akan otomatis: guru.</p>
+          <form onSubmit={onSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <input
+              className="border rounded-lg p-2"
+              placeholder="Email guru"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+            <input
+              className="border rounded-lg p-2"
+              placeholder="Password (min 6)"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              type="password"
+            />
+            <input
+              className="border rounded-lg p-2"
+              placeholder="Nama guru (opsional)"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+            />
+            <div className="md:col-span-3 flex items-center justify-between gap-3">
+              <div className="text-xs text-slate-400">Catatan: fungsi ini butuh Supabase Edge Function `create-user`.</div>
+              <button
+                type="submit"
+                disabled={busy}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60"
+              >
+                {busy ? 'Membuat...' : 'Buat Akun'}
+              </button>
+            </div>
+          </form>
+          {result && (
+            <div className="mt-3 text-sm text-green-700 bg-green-50 border border-green-200 p-3 rounded-lg">{result}</div>
+          )}
+        </div>
+      );
+    };
+
     return (
     <div className="space-y-6 animate-fade-in">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -556,6 +693,8 @@ export default function SiTuntasApp(
           <p className="text-xs text-slate-400 mt-3">Sumber: tasks.created_by (guru yang input ketuntasan).</p>
         </div>
       )}
+
+      <AdminCreateTeacherCard />
     </div>
     )
   };
@@ -563,34 +702,95 @@ export default function SiTuntasApp(
   const GuruView = () => {
     const [searchTerm, setSearchTerm] = useState('');
 
-    const filteredStudents = students.filter(
-      (s) =>
-        s.nama.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        s.kelas.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        s.nis.includes(searchTerm),
-    );
+    const allMapelFallback = Array.from(new Set(Object.values(SUBJECTS).flat())).sort((a, b) => a.localeCompare(b));
+    const allMapel = props.role === 'guru' && guruMapelAjar.length > 0 ? guruMapelAjar : allMapelFallback;
+
+    const visibleStudents =
+      props.role === 'guru'
+        ? guruKelasAjar.length > 0
+          ? students.filter((s) => guruKelasAjar.includes(s.kelas))
+          : []
+        : students;
+
+    const filteredStudents = visibleStudents
+      .filter((s) => (guruKelasFilter ? s.kelas === guruKelasFilter : true))
+      .filter(
+        (s) =>
+          s.nama.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          s.kelas.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          s.nis.includes(searchTerm),
+      )
+      .filter((s) => {
+        if (!guruOnlyProblematic) return true;
+        const relevant = guruMapelFilter ? s.tasks.filter((t) => t.mapel === guruMapelFilter) : s.tasks;
+        return relevant.some((t) => !t.isDone);
+      });
 
     return (
       <div className="space-y-6">
         <div className="flex flex-col md:flex-row justify-between items-center gap-4">
           <div>
             <h2 className="text-xl font-bold text-slate-800">Panel Guru Mata Pelajaran</h2>
-            <p className="text-sm text-slate-500">Cari siswa lintas kelas untuk input tagihan</p>
+            <p className="text-sm text-slate-500">Pilih mapel, lalu cek siswa yang belum tuntas (kelas yang diajar)</p>
           </div>
-          <div className="relative w-full md:w-64">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
-            <input
-              type="text"
-              placeholder="Cari Nama / Kelas / NIS..."
-              className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+          <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
+            <select
+              className="w-full md:w-56 border rounded-lg p-2"
+              value={guruMapelFilter}
+              onChange={(e) => setGuruMapelFilter(e.target.value)}
+              title="Pilih mapel yang diajar"
+            >
+              <option value="">Semua Mapel</option>
+              {allMapel.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+
+            <select
+              className="w-full md:w-40 border rounded-lg p-2 disabled:bg-slate-50 disabled:text-slate-500"
+              value={guruKelasFilter}
+              onChange={(e) => setGuruKelasFilter(e.target.value)}
+              disabled={props.role === 'guru' && guruKelasAjar.length === 0}
+              title="Filter kelas"
+            >
+              <option value="">Semua Kelas</option>
+              {(props.role === 'guru' ? guruKelasAjar : CLASSES).map((k) => (
+                <option key={k} value={k}>
+                  {k}
+                </option>
+              ))}
+            </select>
+
+            <label className="inline-flex items-center gap-2 px-3 py-2 border rounded-lg text-sm text-slate-700 bg-white">
+              <input
+                type="checkbox"
+                checked={guruOnlyProblematic}
+                onChange={(e) => setGuruOnlyProblematic(e.target.checked)}
+              />
+              Hanya Bermasalah
+            </label>
+
+            <div className="relative w-full md:w-64">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                type="text"
+                placeholder="Cari Nama / Kelas / NIS..."
+                className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
           </div>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          {filteredStudents.length === 0 ? (
+          {props.role === 'guru' && guruKelasAjar.length === 0 ? (
+            <div className="p-8 text-center text-slate-600">
+              Kelas ajar belum di-set. Admin perlu mengisi <span className="font-mono">teacher_assignments</span> untuk akun ini.
+            </div>
+          ) : filteredStudents.length === 0 ? (
             <div className="p-8 text-center text-slate-500">Data siswa tidak ditemukan.</div>
           ) : (
             filteredStudents.map((student) => (
@@ -621,11 +821,19 @@ export default function SiTuntasApp(
                   </button>
                 </div>
 
-                {student.tasks.length === 0 ? (
-                  <p className="text-sm text-slate-400 italic ml-14">Tidak ada tanggungan remedial.</p>
-                ) : (
-                  <div className="space-y-2 ml-14">
-                    {student.tasks.map((task) => (
+                {(() => {
+                  const relevantTasks = guruMapelFilter ? student.tasks.filter((t) => t.mapel === guruMapelFilter) : student.tasks;
+                  if (relevantTasks.length === 0) {
+                    return (
+                      <p className="text-sm text-slate-400 italic ml-14">
+                        {guruMapelFilter ? 'Tidak ada tanggungan untuk mapel ini.' : 'Tidak ada tanggungan remedial.'}
+                      </p>
+                    );
+                  }
+
+                  return (
+                    <div className="space-y-2 ml-14">
+                      {relevantTasks.map((task) => (
                       <div
                         key={task.id}
                         className={`flex items-center justify-between p-3 rounded-lg border ${
@@ -669,9 +877,10 @@ export default function SiTuntasApp(
                           <Trash2 size={16} />
                         </button>
                       </div>
-                    ))}
-                  </div>
-                )}
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             ))
           )}
@@ -800,7 +1009,14 @@ export default function SiTuntasApp(
   const StudentsAdminView = () => {
     const [searchTerm, setSearchTerm] = useState('');
 
-    const filteredStudents = students.filter(
+    const visibleStudents =
+      props.role === 'guru'
+        ? guruKelasAjar.length > 0
+          ? students.filter((s) => guruKelasAjar.includes(s.kelas))
+          : []
+        : students;
+
+    const filteredStudents = visibleStudents.filter(
       (s) =>
         s.nama.toLowerCase().includes(searchTerm.toLowerCase()) ||
         s.kelas.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -814,6 +1030,10 @@ export default function SiTuntasApp(
             <h2 className="text-xl font-bold text-slate-800">Data Siswa</h2>
             {props.role === 'walikelas' ? (
               <p className="text-sm text-slate-500">Tambah / edit data siswa untuk kelas {props.waliKelas ?? '-'}</p>
+            ) : props.role === 'guru' ? (
+              <p className="text-sm text-slate-500">
+                Tambah / edit data siswa untuk kelas yang diajar{guruKelasAjar.length > 0 ? `: ${guruKelasAjar.join(', ')}` : ''}
+              </p>
             ) : (
               <p className="text-sm text-slate-500">Tambah / edit / hapus data siswa (admin)</p>
             )}
@@ -912,6 +1132,13 @@ export default function SiTuntasApp(
     const [treatmentNote, setTreatmentNote] = useState('');
 
     if (!showTaskModal || !selectedStudent) return null;
+
+    useEffect(() => {
+      if (props.role === 'guru') {
+        setMapel(guruMapelFilter || '');
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [showTaskModal]);
 
     const handleSubmit = (e: React.FormEvent) => {
       e.preventDefault();
@@ -1032,20 +1259,31 @@ export default function SiTuntasApp(
   const StudentModal = () => {
     const editing = editingStudentId ? students.find((s) => s.id === editingStudentId) ?? null : null;
     const [nama, setNama] = useState(editing?.nama ?? '');
-    const [kelas, setKelas] = useState(editing?.kelas ?? (props.waliKelas ?? 'X-A'));
+    const [kelas, setKelas] = useState(
+      editing?.kelas ?? (props.role === 'guru' ? (guruKelasAjar[0] ?? 'X-A') : (props.waliKelas ?? 'X-A')),
+    );
     const [nis, setNis] = useState(editing?.nis ?? '');
     const [ortu, setOrtu] = useState(editing?.ortu ?? '');
     const [saving, setSaving] = useState(false);
 
     const isKelasLocked = props.role === 'walikelas' && !!props.waliKelas;
+    const isGuru = props.role === 'guru';
+    const noGuruAssignments = isGuru && guruKelasAjar.length === 0;
+    const allowedKelasOptions = isKelasLocked && props.waliKelas ? [props.waliKelas] : isGuru ? (noGuruAssignments ? CLASSES : guruKelasAjar) : CLASSES;
+    const effectiveKelas = isKelasLocked && props.waliKelas ? props.waliKelas : kelas;
 
     useEffect(() => {
       setNama(editing?.nama ?? '');
-      setKelas(editing?.kelas ?? (props.waliKelas ?? 'X-A'));
+      setKelas(
+        editing?.kelas ??
+          (props.role === 'guru'
+            ? guruKelasAjar[0] ?? 'X-A'
+            : props.waliKelas ?? 'X-A'),
+      );
       setNis(editing?.nis ?? '');
       setOrtu(editing?.ortu ?? '');
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [editingStudentId]);
+    }, [editingStudentId, props.role, props.waliKelas, guruKelasAjar.join('|')]);
 
     if (!showStudentModal) return null;
 
@@ -1055,7 +1293,7 @@ export default function SiTuntasApp(
         setSaving(true);
         await upsertStudent({
           nama: nama.trim(),
-          kelas,
+          kelas: effectiveKelas,
           nis: nis.trim(),
           ortu: ortu.trim() ? ortu.trim() : null,
         });
@@ -1095,11 +1333,11 @@ export default function SiTuntasApp(
               <label className="block text-sm font-medium text-slate-700 mb-1">Kelas</label>
               <select
                 className="w-full border rounded-lg p-2 disabled:bg-slate-50 disabled:text-slate-500"
-                value={isKelasLocked && props.waliKelas ? props.waliKelas : kelas}
+                value={effectiveKelas}
                 onChange={(e) => setKelas(e.target.value)}
-                disabled={isKelasLocked}
+                disabled={isKelasLocked || noGuruAssignments}
               >
-                {(isKelasLocked && props.waliKelas ? [props.waliKelas] : CLASSES).map((c) => (
+                {allowedKelasOptions.map((c) => (
                   <option key={c} value={c}>
                     {c}
                   </option>
@@ -1107,6 +1345,9 @@ export default function SiTuntasApp(
               </select>
               {isKelasLocked && (
                 <p className="text-xs text-slate-400 mt-1">Kelas dikunci sesuai wali kelas.</p>
+              )}
+              {noGuruAssignments && (
+                <p className="text-xs text-red-600 mt-1">Kelas ajar belum di-set. Hubungi admin untuk mengisi teacher_assignments.</p>
               )}
             </div>
 
@@ -1177,12 +1418,17 @@ export default function SiTuntasApp(
         setResult(null);
 
         if (!canManageStudents) {
-          setDataError('Akses ditolak: hanya admin/wali kelas yang bisa mengelola data siswa.');
+          setDataError('Akses ditolak: hanya admin/guru/wali kelas yang bisa mengelola data siswa.');
           return;
         }
 
         if (props.role === 'walikelas' && !props.waliKelas) {
           setDataError('Akun wali kelas belum punya kelas. Set dulu profiles.wali_kelas (contoh: X-A).');
+          return;
+        }
+
+        if (props.role === 'guru' && guruKelasAjar.length === 0) {
+          setDataError('Kelas ajar belum di-set. Admin perlu mengisi teacher_assignments untuk akun guru ini.');
           return;
         }
 
@@ -1228,6 +1474,13 @@ export default function SiTuntasApp(
               }
               if (props.role !== 'walikelas' && !CLASSES.includes(kelas)) {
                 errors.push(`Baris ${idx + 2}: kelas tidak valid (${kelas}). Contoh: X-A, XI-A, XII-A.`);
+                return null;
+              }
+
+              if (props.role === 'guru' && !guruKelasAjar.includes(kelas)) {
+                errors.push(
+                  `Baris ${idx + 2}: guru hanya boleh import untuk kelas yang dia ajar (${guruKelasAjar.join(', ')}).`,
+                );
                 return null;
               }
 
@@ -1287,6 +1540,12 @@ export default function SiTuntasApp(
                 <span className="font-semibold">{props.waliKelas}</span>.
               </p>
             )}
+            {props.role === 'guru' && (
+              <p>
+                Role guru: kolom <span className="font-mono">kelas</span> harus termasuk kelas yang diajar
+                {guruKelasAjar.length > 0 ? ` (${guruKelasAjar.join(', ')})` : ''}.
+              </p>
+            )}
             <button onClick={downloadTemplate} className="text-blue-700 hover:underline text-sm">
               Unduh template CSV
             </button>
@@ -1331,25 +1590,27 @@ export default function SiTuntasApp(
     const handleDownloadWord = () => {
       const headerContent = `
         <div style="text-align: center; border-bottom: 2px solid black; padding-bottom: 10px; margin-bottom: 20px;">
-          <h2 style="margin: 0; font-size: 16pt;">KEMENTERIAN AGAMA KABUPATEN BANGGAI</h2>
-          <h1 style="margin: 5px 0; font-size: 18pt;">MADRASAH ALIYAH NEGERI (MAN) BANGGAI</h1>
-          <p style="margin: 0; font-size: 10pt;">Jl. Pendidikan No. 123, Banggai</p>
+          <h3 style="margin: 0; font-size: 12pt;">KEMENTERIAN AGAMA REPUBLIK INDONESIA</h3>
+          <h3 style="margin: 3px 0 0; font-size: 12pt;">KANTOR KEMENTERIAN AGAMA KABUPATEN BANGGAI</h3>
+          <h2 style="margin: 4px 0; font-size: 16pt;">MADRASAH ALIYAH NEGERI (MAN) BANGGAI</h2>
+          <p style="margin: 0; font-size: 9.5pt;">JL. Pulau Irian Rt.004 / Rw.006  Kel Kompo Kec. Luwuk Selatan 94717 NPSN 40209818 NSM 131172010001</p>
+          <p style="margin: 2px 0 0; font-size: 9.5pt;">Website : https://man1banggai.sch.id /email :luwuk_man@yahoo.com</p>
         </div>
       `;
 
       const bodyContent = `
-        <h3 style="text-align: center; text-decoration: underline;">SURAT PERNYATAAN KOMITMEN AKADEMIK</h3>
+        <h3 style="text-align: center; text-decoration: underline; margin: 0;">SURAT PERNYATAAN KOMITMEN AKADEMIK</h3>
         <br/>
-        <p>Saya yang bertanda tangan di bawah ini:</p>
+        <p style="margin-top: 0;">Saya yang bertanda tangan di bawah ini:</p>
         <table style="width: 100%; border: none;">
           <tr><td style="width: 150px;">Nama Siswa</td><td>: ${selectedStudent.nama}</td></tr>
           <tr><td>Kelas</td><td>: ${selectedStudent.kelas}</td></tr>
           <tr><td>NIS</td><td>: ${selectedStudent.nis}</td></tr>
-          <tr><td>Nama Orang Tua</td><td>: ${selectedStudent.ortu}</td></tr>
+          <tr><td>Nama Orang Tua</td><td>: ${selectedStudent.ortu || '-'}</td></tr>
         </table>
 
         <p style="text-align: justify;">
-          Dengan ini menyatakan mengetahui bahwa nilai <strong>Rapor Digital Madrasah (RDM)</strong> Semester ini telah diisi sesuai standar KKTP. Namun, berdasarkan fakta akademik, siswa tersebut masih memiliki tanggungan kompetensi pada mata pelajaran berikut:
+          Dengan ini menyatakan mengetahui bahwa nilai <strong>Rapor Digital Madrasah (RDM)</strong> Semester ini telah diisi sesuai standar <strong>Kriteria Ketercapaian Tujuan Pembelajaran (KKTP)</strong>. Namun, berdasarkan fakta akademik, siswa tersebut masih memiliki belum tuntas pada mata pelajaran berikut:
         </p>
 
         <table style="width: 100%; border-collapse: collapse; border: 1px solid black;">
@@ -1357,7 +1618,7 @@ export default function SiTuntasApp(
             <tr style="background-color: #f3f4f6;">
               <th style="border: 1px solid black; padding: 8px; width: 40px; text-align: center;">No</th>
               <th style="border: 1px solid black; padding: 8px;">Mata Pelajaran</th>
-              <th style="border: 1px solid black; padding: 8px;">Deskripsi Tanggungan</th>
+              <th style="border: 1px solid black; padding: 8px;">Deskripsi Kekurangan/Kompetensi</th>
             </tr>
           </thead>
           <tbody>
@@ -1376,7 +1637,7 @@ export default function SiTuntasApp(
         </table>
 
         <p style="text-align: justify;">
-          Kami berjanji akan menyelesaikan tanggungan tersebut sesuai jadwal remedial. Kami bersedia <strong>Rapor Fisik Asli ditahan</strong> oleh pihak Madrasah sebagai jaminan hingga seluruh tanggungan diselesaikan.
+          Kami berkomitmen untuk menuntaskan kekurangan tersebut sesuai jadwal remedial yang ditetapkan. Kami bersedia apabila <strong>Rapor Fisik Asli ditahan sementara</strong> oleh pihak Madrasah sebagai jaminan hingga seluruh kompetensi dinyatakan tuntas.
         </p>
 
         <br/><br/>
@@ -1386,7 +1647,7 @@ export default function SiTuntasApp(
               <p>Mengetahui,</p>
               <p>Orang Tua/Wali</p>
               <br/><br/><br/><br/>
-              <p><strong>(${selectedStudent.ortu})</strong></p>
+              <p><strong>(${selectedStudent.ortu || '-'})</strong></p>
             </td>
             <td style="text-align: center; vertical-align: top;">
               <p>Banggai, ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
@@ -1443,9 +1704,11 @@ export default function SiTuntasApp(
           {/* Document Content (Scrollable Preview) */}
           <div className="p-8 overflow-y-auto bg-white font-serif text-sm leading-relaxed border-b">
             <div className="text-center mb-6 border-b-2 border-black pb-4">
-              <h1 className="font-bold text-lg uppercase">KEMENTERIAN AGAMA KABUPATEN BANGGAI</h1>
+              <h1 className="font-bold text-sm uppercase">KEMENTERIAN AGAMA REPUBLIK INDONESIA</h1>
+              <h1 className="font-bold text-sm uppercase">KANTOR KEMENTERIAN AGAMA KABUPATEN BANGGAI</h1>
               <h2 className="font-bold text-xl uppercase">MADRASAH ALIYAH NEGERI (MAN) BANGGAI</h2>
-              <p className="text-xs">Jl. Pendidikan No. 123, Banggai</p>
+              <p className="text-[11px]">JL. Pulau Irian Rt.004 / Rw.006  Kel Kompo Kec. Luwuk Selatan 94717 NPSN 40209818 NSM 131172010001</p>
+              <p className="text-[11px]">Website : https://man1banggai.sch.id /email :luwuk_man@yahoo.com</p>
             </div>
 
             <h3 className="text-center font-bold underline mb-6">SURAT PERNYATAAN KOMITMEN AKADEMIK</h3>
@@ -1467,15 +1730,15 @@ export default function SiTuntasApp(
                 </tr>
                 <tr>
                   <td>Nama Orang Tua</td>
-                  <td>: {selectedStudent.ortu}</td>
+                  <td>: {selectedStudent.ortu || '-'}</td>
                 </tr>
               </tbody>
             </table>
 
             <p className="mb-4 text-justify">
               Dengan ini menyatakan mengetahui bahwa nilai <strong>Rapor Digital Madrasah (RDM)</strong> Semester ini
-              telah diisi sesuai standar KKTP. Namun, berdasarkan fakta akademik, siswa tersebut masih memiliki
-              tanggungan kompetensi pada mata pelajaran berikut:
+              telah diisi sesuai standar <strong>Kriteria Ketercapaian Tujuan Pembelajaran (KKTP)</strong>. Namun,
+              berdasarkan fakta akademik, siswa tersebut masih memiliki belum tuntas pada mata pelajaran berikut:
             </p>
 
             <table className="w-full border-collapse border border-black mb-6">
@@ -1483,7 +1746,7 @@ export default function SiTuntasApp(
                 <tr className="bg-gray-100">
                   <th className="border border-black p-2 text-center w-12">No</th>
                   <th className="border border-black p-2">Mata Pelajaran</th>
-                  <th className="border border-black p-2">Deskripsi Tanggungan</th>
+                  <th className="border border-black p-2">Deskripsi Kekurangan/Kompetensi</th>
                 </tr>
               </thead>
               <tbody>
@@ -1498,9 +1761,9 @@ export default function SiTuntasApp(
             </table>
 
             <p className="mb-8 text-justify">
-              Kami berjanji akan menyelesaikan tanggungan tersebut sesuai jadwal remedial. Kami bersedia{' '}
-              <strong>Rapor Fisik Asli ditahan</strong> oleh pihak Madrasah sebagai jaminan hingga seluruh tanggungan
-              diselesaikan.
+              Kami berkomitmen untuk menuntaskan kekurangan tersebut sesuai jadwal remedial yang ditetapkan. Kami
+              bersedia apabila <strong>Rapor Fisik Asli ditahan sementara</strong> oleh pihak Madrasah sebagai jaminan
+              hingga seluruh kompetensi dinyatakan tuntas.
             </p>
 
             <div className="flex justify-between mt-12">
@@ -1510,7 +1773,7 @@ export default function SiTuntasApp(
                 <br />
                 <br />
                 <br />
-                <p className="font-bold">({selectedStudent.ortu})</p>
+                <p className="font-bold">({selectedStudent.ortu || '-'})</p>
               </div>
               <div className="text-center">
                 <p>
