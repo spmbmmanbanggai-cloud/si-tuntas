@@ -983,9 +983,10 @@ export default function SiTuntasApp(
 
                                       const body: any = {
                                         user_id: t.id,
-                                        email: editEmail.trim() ? editEmail.trim() : null,
-                                        display_name: editDisplayName.trim() ? editDisplayName.trim() : null,
                                       };
+
+                                      if (editEmail.trim()) body.email = editEmail.trim();
+                                      if (editDisplayName.trim()) body.display_name = editDisplayName.trim();
                                       if (editPassword.trim()) body.password = editPassword;
 
                                       const { error } = await sb.functions.invoke('update-user', {
