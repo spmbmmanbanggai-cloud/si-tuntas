@@ -117,7 +117,13 @@ type TaskRow = {
 };
 
 export default function SiTuntasApp(
-  props: { role?: AppRole; waliKelas?: string | null; userId?: string; reloadProfile?: () => Promise<void> } = {},
+  props: {
+    role?: AppRole;
+    waliKelas?: string | null;
+    userId?: string;
+    userEmail?: string | null;
+    reloadProfile?: () => Promise<void>;
+  } = {},
 ) {
   if (supabaseConfigError || !supabase) {
     return (
@@ -2309,6 +2315,11 @@ export default function SiTuntasApp(
             {props.role && (
               <div className="text-xs text-slate-500">
                 Role: <span className="font-semibold text-slate-700">{props.role}</span>
+              </div>
+            )}
+            {props.userEmail && (
+              <div className="text-xs text-slate-500">
+                Email: <span className="font-semibold text-slate-700">{props.userEmail}</span>
               </div>
             )}
             {props.role === 'walikelas' && props.waliKelas && (

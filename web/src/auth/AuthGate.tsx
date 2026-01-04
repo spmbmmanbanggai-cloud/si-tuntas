@@ -58,7 +58,15 @@ function LoginScreen() {
     setLoading(true)
     setError(null)
 
-    const { error: signInError } = await sb.auth.signInWithPassword({ email, password })
+    // Defensive: ensure no previous session is carried over.
+    try {
+      await sb.auth.signOut()
+    } catch {
+      // ignore
+    }
+
+    const normalizedEmail = email.trim().toLowerCase()
+    const { error: signInError } = await sb.auth.signInWithPassword({ email: normalizedEmail, password })
 
     setLoading(false)
     if (signInError) setError(signInError.message)

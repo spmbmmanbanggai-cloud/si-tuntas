@@ -9,6 +9,7 @@ export default function App() {
           role={profile.role}
           waliKelas={profile.wali_kelas}
           userId={user.id}
+          userEmail={user.email ?? null}
           reloadProfile={reloadProfile}
         />
       )}
