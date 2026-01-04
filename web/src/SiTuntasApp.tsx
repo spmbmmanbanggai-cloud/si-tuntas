@@ -801,7 +801,13 @@ export default function SiTuntasApp(
   };
 
   const TeachersView = () => {
-    type TeacherProfile = { id: string; display_name: string | null; email: string | null };
+    type TeacherProfile = {
+      id: string;
+      display_name: string | null;
+      email: string | null;
+      role: 'guru' | 'walikelas' | 'admin' | string;
+      wali_kelas: string | null;
+    };
     type SubjectRow = { id: string; name: string };
     type ClassRow = { name: string };
 
@@ -825,7 +831,12 @@ export default function SiTuntasApp(
       setLocalError(null);
       const [{ data: tData, error: tErr }, { data: sData, error: sErr }, { data: cData, error: cErr }] =
         await Promise.all([
-          sb.from('profiles').select('id,display_name,email').eq('role', 'guru').order('display_name', { ascending: true }),
+          sb
+            .from('profiles')
+            .select('id,display_name,email,role,wali_kelas')
+            .in('role', ['guru', 'walikelas'])
+            .order('role', { ascending: true })
+            .order('display_name', { ascending: true }),
           sb.from('subjects').select('id,name').order('group_name', { ascending: true }).order('name', { ascending: true }),
           sb.from('classes').select('name').order('name', { ascending: true }),
         ]);
@@ -896,8 +907,8 @@ export default function SiTuntasApp(
         <AdminCreateTeacherCard onCreated={loadAdminTeacherData} />
 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <h4 className="font-bold text-slate-800 mb-1">Daftar Guru</h4>
-          <p className="text-sm text-slate-500 mb-4">Menampilkan akun guru yang sudah dibuat. Admin bisa edit data atau reset password.</p>
+          <h4 className="font-bold text-slate-800 mb-1">Daftar Akun Guru / Wali Kelas</h4>
+          <p className="text-sm text-slate-500 mb-4">Menampilkan akun guru & wali kelas yang sudah dibuat. Admin bisa edit data atau reset password.</p>
 
           {localError && (
             <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 p-3 rounded-lg">{localError}</div>
@@ -931,7 +942,12 @@ export default function SiTuntasApp(
                               placeholder="Nama guru"
                             />
                           ) : (
-                            (t.display_name?.trim() ? t.display_name.trim() : `User ${t.id.slice(0, 8)}`)
+                            <div className="space-y-0.5">
+                              <div>{t.display_name?.trim() ? t.display_name.trim() : `User ${t.id.slice(0, 8)}`}</div>
+                              {t.role === 'walikelas' && (
+                                <div className="text-xs text-slate-500">Wali Kelas {t.wali_kelas ?? '-'}</div>
+                              )}
+                            </div>
                           )}
                         </td>
                         <td className="py-2 pr-4 text-slate-700">
