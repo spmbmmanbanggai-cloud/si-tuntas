@@ -813,7 +813,7 @@ export default function SiTuntasApp(
           sb
             .from('profiles')
             .select('id,display_name,email,role,wali_kelas')
-            .in('role', ['guru', 'walikelas'])
+            .in('role', ['admin', 'guru', 'walikelas'])
             .order('role', { ascending: true })
             .order('display_name', { ascending: true }),
           sb.from('subjects').select('id,name').order('group_name', { ascending: true }).order('name', { ascending: true }),
@@ -886,8 +886,8 @@ export default function SiTuntasApp(
         <AdminCreateTeacherCard onCreated={loadAdminTeacherData} />
 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <h4 className="font-bold text-slate-800 mb-1">Daftar Akun Guru / Wali Kelas</h4>
-          <p className="text-sm text-slate-500 mb-4">Menampilkan akun guru & wali kelas yang sudah dibuat. Admin bisa edit data atau reset password.</p>
+          <h4 className="font-bold text-slate-800 mb-1">Daftar Akun</h4>
+          <p className="text-sm text-slate-500 mb-4">Menampilkan akun admin/guru/wali kelas yang sudah dibuat. Admin bisa edit data atau reset password.</p>
 
           {localError && (
             <div className="mb-3 text-sm text-red-700 bg-red-50 border border-red-200 p-3 rounded-lg">{localError}</div>
@@ -923,6 +923,8 @@ export default function SiTuntasApp(
                           ) : (
                             <div className="space-y-0.5">
                               <div>{t.display_name?.trim() ? t.display_name.trim() : `User ${t.id.slice(0, 8)}`}</div>
+                              {t.role === 'admin' && <div className="text-xs text-slate-500">Admin</div>}
+                              {t.role === 'guru' && <div className="text-xs text-slate-500">Guru</div>}
                               {t.role === 'walikelas' && (
                                 <div className="text-xs text-slate-500">Wali Kelas {t.wali_kelas ?? '-'}</div>
                               )}
